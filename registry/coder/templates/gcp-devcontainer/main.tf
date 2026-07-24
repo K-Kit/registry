@@ -47,6 +47,7 @@ module "gcp_region" {
   # This ensures that the latest non-breaking version of the module gets downloaded, you can also pin the module version to prevent breaking changes in production.
   version = "~> 1.0"
   regions = ["us", "europe"]
+  default = "us-west2-a"
 }
 
 data "coder_parameter" "instance_type" {
