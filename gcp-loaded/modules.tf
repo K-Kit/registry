@@ -5,6 +5,57 @@ variable "claude_code_oauth_token" {
   default     = ""
   sensitive   = true
 }
+
+data "coder_parameter" "install_oh_my_codex" {
+  name         = "install_oh_my_codex"
+  display_name = "Install Oh My Codex"
+  description  = "Install the latest oh-my-codex package globally for the workspace user."
+  type         = "bool"
+  default      = false
+  mutable      = true
+  order        = 10
+}
+
+data "coder_parameter" "install_oh_my_claude_sisyphus" {
+  name         = "install_oh_my_claude_sisyphus"
+  display_name = "Install Oh My Claude"
+  description  = "Install the latest oh-my-claude-sisyphus package globally for the workspace user."
+  type         = "bool"
+  default      = false
+  mutable      = true
+  order        = 11
+}
+
+data "coder_parameter" "install_gemini_cli" {
+  name         = "install_gemini_cli"
+  display_name = "Install Gemini CLI"
+  description  = "Install the latest Google Gemini CLI globally for the workspace user."
+  type         = "bool"
+  default      = false
+  mutable      = true
+  order        = 12
+}
+
+data "coder_parameter" "install_opencode_cli" {
+  name         = "install_opencode_cli"
+  display_name = "Install OpenCode CLI"
+  description  = "Install the latest OpenCode CLI globally for the workspace user."
+  type         = "bool"
+  default      = false
+  mutable      = true
+  order        = 13
+}
+
+data "coder_parameter" "install_oh_my_openagent" {
+  name         = "install_oh_my_openagent"
+  display_name = "Install Oh My OpenAgent"
+  description  = "Run the non-interactive Oh My OpenAgent installer after installing OpenCode and Bun."
+  type         = "bool"
+  default      = false
+  mutable      = true
+  order        = 14
+}
+
 module "claude-code" {
   count                   = data.coder_workspace.me.start_count
   source                  = "registry.coder.com/coder/claude-code/coder"

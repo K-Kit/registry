@@ -34,7 +34,6 @@ a service account:
 
 1. Click **Create and continue**, and choose the following IAM roles to grant to
    the service account:
-
    - Compute Admin
    - Service Account User
 
@@ -57,6 +56,12 @@ This template provisions the following resources:
 - GCP Disk (persistent, mounted to root)
 
 Coder persists the root volume. The full filesystem is preserved when the workspace restarts. See this [community example](https://github.com/bpmct/coder-templates/tree/main/aws-linux-ephemeral) of an ephemeral AWS instance.
+
+The workspace creation form lets users choose any Google Compute Engine machine type and boot image. The default zone is `us-west2-a` in Los Angeles.
+
+Optional workspace parameters can install Gemini CLI, OpenCode CLI, Oh My Codex, Oh My Claude, and Oh My OpenAgent. The npm-based tools use a user-local global prefix under `~/.local`, while Bun is installed under its standard user directory when Oh My OpenAgent is enabled. Installer output is written to `~/.coder-modules/coder/gcp-loaded/logs/install-optional-tools.log`.
+
+Oh My OpenAgent is installed non-interactively with provider integrations and authentication skipped. Run its installer again inside the workspace with the subscription flags appropriate for your accounts if you want provider-specific model configuration.
 
 > **Note**
 > This template is designed to be a starting point! Edit the Terraform to extend the template to support your use case.

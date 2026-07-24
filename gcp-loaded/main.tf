@@ -13,6 +13,7 @@ provider "coder" {}
 
 variable "project_id" {
   description = "Which Google Compute Project should your workspace live in?"
+  type        = string
   default     = "exalted-splicer-470804-k7"
 }
 
@@ -24,7 +25,27 @@ module "gcp_region" {
   version = "~> 1.0"
 
   regions = ["us", "europe"]
-  default = "us-central1-a"
+  default = "us-west2-a"
+}
+
+data "coder_parameter" "instance_type" {
+  name         = "instance_type"
+  display_name = "Instance Type"
+  description  = "Google Compute Engine machine type for the workspace."
+  type         = "string"
+  default      = "e2-medium"
+  mutable      = false
+  order        = 2
+}
+
+data "coder_parameter" "disk_image" {
+  name         = "disk_image"
+  display_name = "Disk Image"
+  description  = "Google Compute Engine boot image used when the persistent workspace disk is first created."
+  type         = "string"
+  default      = "debian-cloud/debian-11"
+  mutable      = false
+  order        = 3
 }
 
 provider "google" {
@@ -41,7 +62,7 @@ resource "google_compute_disk" "root" {
   name  = "coder-${data.coder_workspace.me.id}-root"
   type  = "pd-ssd"
   zone  = module.gcp_region.value
-  image = "debian-cloud/debian-11"
+  image = data.coder_parameter.disk_image.value
   lifecycle {
     ignore_changes = [name, image]
   }
@@ -51,11 +72,13 @@ resource "coder_agent" "main" {
   auth           = "google-instance-identity"
   arch           = "amd64"
   os             = "linux"
-  startup_script = <<-EOT
-    set -e
-
-    # Add any commands that should be executed at workspace startup (e.g install requirements, start a program, etc) here
-  EOT
+  startup_script = templatefile("${path.module}/scripts/install-optional-tools.sh.tftpl", {
+    ARG_INSTALL_GEMINI_CLI             = tostring(data.coder_parameter.install_gemini_cli.value)
+    ARG_INSTALL_OH_MY_CLAUDE_SISYPHUS = tostring(data.coder_parameter.install_oh_my_claude_sisyphus.value)
+    ARG_INSTALL_OH_MY_CODEX            = tostring(data.coder_parameter.install_oh_my_codex.value)
+    ARG_INSTALL_OH_MY_OPENAGENT        = tostring(data.coder_parameter.install_oh_my_openagent.value)
+    ARG_INSTALL_OPENCODE_CLI           = tostring(data.coder_parameter.install_opencode_cli.value)
+  })
 
   metadata {
     key          = "cpu"
@@ -96,7 +119,7 @@ resource "google_compute_instance" "dev" {
   zone         = module.gcp_region.value
   count        = data.coder_workspace.me.start_count
   name         = "coder-${lower(data.coder_workspace_owner.me.name)}-${lower(data.coder_workspace.me.name)}-root"
-  machine_type = "e2-medium"
+  machine_type = data.coder_parameter.instance_type.value
   network_interface {
     network = "default"
     access_config {
