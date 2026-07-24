@@ -173,6 +173,7 @@ EOMETA
 locals {
   # Ensure Coder username is a valid Linux username
   linux_user = lower(substr(data.coder_workspace_owner.me.name, 0, 32))
+  kasmvnc_supported = !strcontains(lower(data.coder_parameter.disk_image.value), "ubuntu-2604") && !strcontains(lower(data.coder_parameter.disk_image.value), "resolute")
 }
 
 resource "coder_metadata" "workspace_info" {

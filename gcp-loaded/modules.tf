@@ -114,7 +114,7 @@ module "cursor" {
 module "code-server" {
   count                   = data.coder_workspace.me.start_count
   source                  = "registry.coder.com/coder/code-server/coder"
-  version                 = "1.5.0"
+  version                 = "1.5.2"
   agent_id                = coder_agent.main.id
   additional_args         = ""
   auto_install_extensions = false
@@ -194,7 +194,7 @@ module "git-commit-signing" {
 }
 
 module "kasmvnc" {
-  count               = data.coder_workspace.me.start_count
+  count               = data.coder_workspace.me.start_count * (local.kasmvnc_supported ? 1 : 0)
   source              = "registry.coder.com/coder/kasmvnc/coder"
   version             = "1.3.0"
   agent_id            = coder_agent.main.id
