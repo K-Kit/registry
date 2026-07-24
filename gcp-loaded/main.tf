@@ -27,15 +27,34 @@ module "gcp_region" {
   regions = ["us", "europe"]
   default = "us-west2-a"
 }
+locals {
+  instance_types = {
+    "e2-small"       = "E2 Small (2 vCPU, 2 GB)"
+    "e2-medium"      = "E2 Medium (2 vCPU, 4 GB)"
+    "e2-standard-2"  = "E2 Standard 2 (2 vCPU, 8 GB)"
+    "e2-standard-4"  = "E2 Standard 4 (4 vCPU, 16 GB)"
+    "e2-standard-8"  = "E2 Standard 8 (8 vCPU, 32 GB)"
+    "e2-standard-16" = "E2 Standard 16 (16 vCPU, 64 GB)"
+  }
+}
 
 data "coder_parameter" "instance_type" {
   name         = "instance_type"
   display_name = "Instance Type"
   description  = "Google Compute Engine machine type for the workspace."
   type         = "string"
+  form_type    = "dropdown"
   default      = "e2-medium"
   mutable      = false
   order        = 2
+
+  dynamic "option" {
+    for_each = local.instance_types
+    content {
+      name  = option.value
+      value = option.key
+    }
+  }
 }
 
 data "coder_parameter" "disk_image" {
