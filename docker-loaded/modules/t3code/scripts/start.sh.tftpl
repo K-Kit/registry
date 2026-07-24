@@ -1,0 +1,181 @@
+#!/usr/bin/env bash
+
+if [ -f "$HOME/.bashrc" ]; then
+  # shellcheck disable=SC1090
+  source "$HOME/.bashrc"
+fi
+
+set -euo pipefail
+
+ARG_AUTO_BOOTSTRAP_PROJECT='${ARG_AUTO_BOOTSTRAP_PROJECT}'
+ARG_PAIRING_SECRET_B64='${ARG_PAIRING_SECRET_B64}'
+ARG_PORT='${ARG_PORT}'
+ARG_WORKDIR_B64='${ARG_WORKDIR_B64}'
+MODULE_ROOT="$HOME/.coder-modules/coder/t3code"
+NODE_HOME="$MODULE_ROOT/node"
+RUNTIME_DIR="$MODULE_ROOT/runtime"
+T3CODE_BIN="$RUNTIME_DIR/node_modules/.bin/t3"
+DATA_DIR="$MODULE_ROOT/data"
+RUN_DIR="$MODULE_ROOT/run"
+PID_FILE="$RUN_DIR/t3code.pid"
+SERVICE_LOG="$MODULE_ROOT/logs/t3code.log"
+HEALTH_URL="http://127.0.0.1:$ARG_PORT/"
+
+export PATH="$NODE_HOME/bin:$PATH"
+
+health_ready() {
+  if command -v curl > /dev/null 2>&1; then
+    curl --fail --silent --max-time 2 "$HEALTH_URL" > /dev/null
+    return
+  fi
+
+  node -e '
+    const http = require("node:http");
+    const request = http.get(process.argv[1], { timeout: 2000 }, (response) => {
+      response.resume();
+      process.exit(response.statusCode >= 200 && response.statusCode < 400 ? 0 : 1);
+    });
+    request.on("timeout", () => request.destroy());
+    request.on("error", () => process.exit(1));
+  ' "$HEALTH_URL"
+}
+
+port_in_use() {
+  node -e '
+    const net = require("node:net");
+    const socket = net.createConnection({
+      host: "127.0.0.1",
+      port: Number(process.argv[1]),
+      timeout: 500,
+    });
+    socket.on("connect", () => {
+      socket.destroy();
+      process.exit(0);
+    });
+    socket.on("timeout", () => {
+      socket.destroy();
+      process.exit(1);
+    });
+    socket.on("error", () => process.exit(1));
+  ' "$ARG_PORT"
+}
+
+stop_started_process() {
+  local pid="$1"
+
+  if kill -0 "$pid" 2> /dev/null; then
+    kill "$pid" 2> /dev/null || true
+    wait "$pid" 2> /dev/null || true
+  fi
+  rm -f "$PID_FILE"
+}
+
+if [ ! -x "$T3CODE_BIN" ]; then
+  printf 'Error: T3 Code is not installed at %s.\n' "$T3CODE_BIN" >&2
+  exit 1
+fi
+
+mkdir -p "$DATA_DIR" "$RUN_DIR" "$(dirname "$SERVICE_LOG")"
+
+if health_ready; then
+  printf 'T3 Code is already healthy at %s.\n' "$HEALTH_URL"
+  exit 0
+fi
+
+if [ -f "$PID_FILE" ]; then
+  existing_pid="$(cat "$PID_FILE")"
+  if [[ "$existing_pid" =~ ^[0-9]+$ ]] && kill -0 "$existing_pid" 2> /dev/null; then
+    printf 'Error: T3 Code process %s is running but its health check is failing.\n' "$existing_pid" >&2
+    exit 1
+  fi
+
+  rm -f "$PID_FILE"
+fi
+
+if port_in_use; then
+  printf 'Error: port %s is already used by another process.\n' "$ARG_PORT" >&2
+  exit 1
+fi
+
+if [ -n "$ARG_WORKDIR_B64" ]; then
+  WORKDIR="$(printf '%s' "$ARG_WORKDIR_B64" | base64 --decode)"
+  WORKDIR="$${WORKDIR/#\~/$HOME}"
+  WORKDIR="$${WORKDIR//\$HOME/$HOME}"
+else
+  WORKDIR="$HOME"
+fi
+
+if [ ! -d "$WORKDIR" ]; then
+  printf 'Error: configured T3 Code working directory does not exist: %s.\n' "$WORKDIR" >&2
+  exit 1
+fi
+
+start_args=(
+  start
+  --mode web
+  --host 127.0.0.1
+  --port "$ARG_PORT"
+  --base-dir "$DATA_DIR"
+  --no-browser
+)
+
+if [ "$ARG_AUTO_BOOTSTRAP_PROJECT" = "true" ]; then
+  start_args+=(--auto-bootstrap-project-from-cwd)
+fi
+
+start_t3code() {
+  if [ -z "$ARG_PAIRING_SECRET_B64" ]; then
+    nohup "$T3CODE_BIN" "$${start_args[@]}" "$WORKDIR" >> "$SERVICE_LOG" 2>&1 &
+    t3code_pid=$!
+    return
+  fi
+
+  local bootstrap_json
+  local pairing_secret
+  pairing_secret="$(printf '%s' "$ARG_PAIRING_SECRET_B64" | base64 --decode)"
+  bootstrap_json="$(
+    printf '%s' "$pairing_secret" | "$NODE_HOME/bin/node" -e '
+      const fs = require("node:fs");
+      const desktopBootstrapToken = fs.readFileSync(0, "utf8");
+      process.stdout.write(JSON.stringify({
+        mode: "desktop",
+        noBrowser: true,
+        port: Number(process.argv[1]),
+        t3Home: process.argv[2],
+        host: "127.0.0.1",
+        desktopBootstrapToken,
+        tailscaleServeEnabled: false,
+        tailscaleServePort: 443,
+      }));
+    ' "$ARG_PORT" "$DATA_DIR"
+  )"
+  unset pairing_secret
+
+  nohup "$T3CODE_BIN" "$${start_args[@]}" --bootstrap-fd 3 "$WORKDIR" 3<<<"$bootstrap_json" >> "$SERVICE_LOG" 2>&1 &
+  t3code_pid=$!
+  unset bootstrap_json
+}
+
+printf 'Starting T3 Code at %s with state stored under %s.\n' "$HEALTH_URL" "$DATA_DIR"
+start_t3code
+printf '%s\n' "$t3code_pid" > "$PID_FILE"
+
+for _ in $(seq 1 60); do
+  if health_ready; then
+    printf 'T3 Code is ready at %s.\n' "$HEALTH_URL"
+    exit 0
+  fi
+
+  if ! kill -0 "$t3code_pid" 2> /dev/null; then
+    wait "$t3code_pid" || exit_code=$?
+    rm -f "$PID_FILE"
+    printf 'Error: T3 Code exited before becoming healthy (exit code %s). See %s.\n' "$${exit_code:-unknown}" "$SERVICE_LOG" >&2
+    exit 1
+  fi
+
+  sleep 1
+done
+
+printf 'Error: T3 Code did not become healthy within 60 seconds. See %s.\n' "$SERVICE_LOG" >&2
+stop_started_process "$t3code_pid"
+exit 1

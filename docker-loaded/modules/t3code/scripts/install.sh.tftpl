@@ -1,0 +1,112 @@
+#!/usr/bin/env bash
+
+set -euo pipefail
+
+ARG_NODE_VERSION='${ARG_NODE_VERSION}'
+ARG_T3CODE_VERSION='${ARG_T3CODE_VERSION}'
+MODULE_ROOT="$HOME/.coder-modules/coder/t3code"
+NODE_HOME="$MODULE_ROOT/node"
+RUNTIME_DIR="$MODULE_ROOT/runtime"
+PACKAGE_DIR="$RUNTIME_DIR/node_modules/t3"
+T3CODE_BIN="$RUNTIME_DIR/node_modules/.bin/t3"
+PACKAGE_SPEC="t3@$ARG_T3CODE_VERSION"
+
+require_command() {
+  if ! command -v "$1" > /dev/null 2>&1; then
+    printf 'Error: %s is required to install T3 Code.\n' "$1" >&2
+    exit 1
+  fi
+}
+
+install_node() {
+  local node_arch
+  local archive
+  local download_url
+
+  if [ -x "$NODE_HOME/bin/node" ] && [ "$("$NODE_HOME/bin/node" --version)" = "v$ARG_NODE_VERSION" ]; then
+    return
+  fi
+
+  if [ "$(uname -s)" != "Linux" ]; then
+    printf 'Error: the T3 Code module currently supports Linux workspaces only.\n' >&2
+    exit 1
+  fi
+
+  case "$(uname -m)" in
+    x86_64 | amd64)
+      node_arch="x64"
+      ;;
+    aarch64 | arm64)
+      node_arch="arm64"
+      ;;
+    *)
+      printf 'Error: unsupported CPU architecture: %s.\n' "$(uname -m)" >&2
+      exit 1
+      ;;
+  esac
+
+  archive="$MODULE_ROOT/node-v$ARG_NODE_VERSION-linux-$node_arch.tar.gz"
+  download_url="https://nodejs.org/dist/v$ARG_NODE_VERSION/node-v$ARG_NODE_VERSION-linux-$node_arch.tar.gz"
+
+  mkdir -p "$MODULE_ROOT" "$RUNTIME_DIR"
+  printf 'Downloading Node.js %s for linux-%s.\n' "$ARG_NODE_VERSION" "$node_arch"
+  curl --fail --location --silent --show-error "$download_url" --output "$archive"
+
+  rm -rf "$NODE_HOME"
+  mkdir -p "$NODE_HOME"
+  tar -xzf "$archive" --strip-components=1 -C "$NODE_HOME"
+}
+
+install_build_tools() {
+  if command -v python3 > /dev/null 2>&1 && command -v make > /dev/null 2>&1 && command -v c++ > /dev/null 2>&1; then
+    return
+  fi
+
+  if ! command -v apt-get > /dev/null 2>&1 || ! command -v sudo > /dev/null 2>&1; then
+    printf 'Error: Python 3, make, and a C++ compiler are required to build T3 Code native dependencies.\n' >&2
+    exit 1
+  fi
+
+  printf 'Installing native build dependencies with apt.\n'
+  sudo apt-get -o APT::Update::Lock::Timeout=300 -o DPkg::Lock::Timeout=300 update
+  sudo apt-get -o DPkg::Lock::Timeout=300 install -y build-essential python3
+}
+
+installed_version() {
+  if [ ! -f "$PACKAGE_DIR/package.json" ]; then
+    return 1
+  fi
+
+  PACKAGE_JSON="$PACKAGE_DIR/package.json" "$NODE_HOME/bin/node" -p "require(process.env.PACKAGE_JSON).version"
+}
+
+require_command curl
+require_command tar
+install_node
+install_build_tools
+
+export PATH="$NODE_HOME/bin:$PATH"
+
+current_version="$(installed_version || true)"
+if [ -x "$T3CODE_BIN" ] && { [ "$ARG_T3CODE_VERSION" = "latest" ] || [ "$current_version" = "$ARG_T3CODE_VERSION" ]; }; then
+  printf 'T3 Code %s is already installed in %s.\n' "$current_version" "$RUNTIME_DIR"
+  exit 0
+fi
+
+printf 'Installing %s in %s.\n' "$PACKAGE_SPEC" "$RUNTIME_DIR"
+npm install \
+  --prefix "$RUNTIME_DIR" \
+  --no-save \
+  --package-lock=false \
+  --omit=dev \
+  --no-audit \
+  --no-fund \
+  "$PACKAGE_SPEC"
+
+if [ ! -x "$T3CODE_BIN" ]; then
+  printf 'Error: T3 Code installation completed without creating %s.\n' "$T3CODE_BIN" >&2
+  exit 1
+fi
+
+NODE_PATH="$RUNTIME_DIR/node_modules" "$NODE_HOME/bin/node" -e 'require("node-pty")'
+printf 'Installed T3 Code %s successfully.\n' "$(installed_version)"
