@@ -1,0 +1,31 @@
+#!/usr/bin/env bash
+
+if [ -f "$HOME/.bashrc" ]; then
+  # shellcheck disable=SC1090
+  source "$HOME/.bashrc"
+fi
+
+set -euo pipefail
+
+ARG_OPENCODE_VERSION='${ARG_OPENCODE_VERSION}'
+OPENCODE_BIN="$HOME/.opencode/bin/opencode"
+
+if [ -x "$OPENCODE_BIN" ]; then
+  printf 'OpenCode is already installed at %s.\n' "$OPENCODE_BIN"
+  exit 0
+fi
+
+printf 'Installing OpenCode %s with the official installer.\n' "$ARG_OPENCODE_VERSION"
+if [ "$ARG_OPENCODE_VERSION" = "latest" ]; then
+  curl --fail --silent --show-error --location https://opencode.ai/install | bash
+else
+  curl --fail --silent --show-error --location https://opencode.ai/install |
+    VERSION="$ARG_OPENCODE_VERSION" bash
+fi
+
+if [ ! -x "$OPENCODE_BIN" ]; then
+  printf 'Error: OpenCode installation completed without producing %s.\n' "$OPENCODE_BIN" >&2
+  exit 1
+fi
+
+printf 'OpenCode installation completed at %s.\n' "$OPENCODE_BIN"

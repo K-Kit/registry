@@ -28,7 +28,7 @@ install_node() {
   fi
 
   if [ "$(uname -s)" != "Linux" ]; then
-    printf 'Error: the T3 Code module currently supports Linux workspaces only.\n' >&2
+    printf 'Error: T3 Code supports Linux workspaces only.\n' >&2
     exit 1
   fi
 
@@ -68,8 +68,8 @@ install_build_tools() {
   fi
 
   printf 'Installing native build dependencies with apt.\n'
-  sudo apt-get -o APT::Update::Lock::Timeout=300 -o DPkg::Lock::Timeout=300 update
-  sudo apt-get -o DPkg::Lock::Timeout=300 install -y build-essential python3
+  sudo apt-get update
+  sudo apt-get install -y build-essential python3
 }
 
 installed_version() {
@@ -86,9 +86,6 @@ install_node
 install_build_tools
 
 export PATH="$NODE_HOME/bin:$PATH"
-
-# npm 12 blocks dependency install scripts unless the project explicitly approves them.
-printf '%s\n' '{"name":"coder-t3code-runtime","private":true,"allowScripts":{"node-pty":true,"msgpackr-extract":true}}' > "$RUNTIME_DIR/package.json"
 
 current_version="$(installed_version || true)"
 if [ -x "$T3CODE_BIN" ] && { [ "$ARG_T3CODE_VERSION" = "latest" ] || [ "$current_version" = "$ARG_T3CODE_VERSION" ]; }; then

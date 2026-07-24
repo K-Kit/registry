@@ -12,6 +12,8 @@ Run [T3 Code](https://github.com/pingdotgg/t3code), a web interface for coding a
 
 Install and authenticate at least one supported provider CLI before using T3 Code. T3 Code currently supports Codex, Claude Code, Cursor, and OpenCode.
 
+Set `pairing_secret` to a secret of at least 12 characters when clients need a stable pairing credential. The module passes it through T3 Code's bootstrap file descriptor so it does not appear in the server command line. Leave it empty to use T3 Code-generated pairing tokens.
+
 ```tf
 module "t3code" {
   count    = data.coder_workspace.me.start_count

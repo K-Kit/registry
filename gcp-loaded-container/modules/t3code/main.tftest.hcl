@@ -173,3 +173,4 @@ run "rejects_short_pairing_secret" {
 
   expect_failures = [var.pairing_secret]
 }
+

@@ -12,6 +12,13 @@ variable "openai_api_key" {
   sensitive   = true
 }
 
+variable "t3code_pairing_secret" {
+  description = "Optional reusable pairing secret for T3 Code clients. Leave empty to use T3 Code-generated pairing tokens."
+  type        = string
+  default     = ""
+  sensitive   = true
+}
+
 module "code_server" {
   count   = data.coder_workspace.me.start_count
   source  = "registry.coder.com/coder/code-server/coder"
@@ -104,3 +111,10 @@ module "personalize" {
   path     = "$HOME/personalize"
 }
 
+module "t3code" {
+  count          = data.coder_workspace.me.start_count
+  source         = "./modules/t3code"
+  agent_id       = coder_agent.main.id
+  pairing_secret = var.t3code_pairing_secret
+  workdir        = "$HOME"
+}

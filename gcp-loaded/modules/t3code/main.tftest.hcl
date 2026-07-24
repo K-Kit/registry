@@ -48,6 +48,11 @@ run "defaults_are_secure" {
   }
 
   assert {
+    condition     = strcontains(local.install_script, "\"allowScripts\"") && strcontains(local.install_script, "\"node-pty\":true") && strcontains(local.install_script, "\"msgpackr-extract\":true")
+    error_message = "The install script must approve T3 Code's native dependency install scripts for npm 12."
+  }
+
+  assert {
     condition     = local.module_directory == "$HOME/.coder-modules/coder/t3code"
     error_message = "The module must use the standard per-module data root."
   }

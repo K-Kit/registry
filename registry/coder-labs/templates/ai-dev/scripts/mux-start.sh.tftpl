@@ -1,0 +1,91 @@
+#!/usr/bin/env bash
+
+if [ -f "$HOME/.bashrc" ]; then
+  # shellcheck disable=SC1090
+  source "$HOME/.bashrc"
+fi
+
+set -euo pipefail
+
+ARG_AUTH_TOKEN='${ARG_AUTH_TOKEN}'
+ARG_PORT='${ARG_PORT}'
+ARG_WORKDIR_B64='${ARG_WORKDIR_B64}'
+MODULE_ROOT="$HOME/.coder-modules/coder/mux"
+MUX_BIN="$MODULE_ROOT/runtime/mux"
+RUN_DIR="$${XDG_RUNTIME_DIR:-/tmp}/coder-mux-$${UID}"
+PID_FILE="$RUN_DIR/mux.pid"
+SERVICE_LOG="$MODULE_ROOT/logs/mux.log"
+INSTALL_LOG="$MODULE_ROOT/logs/install.log"
+HEALTH_URL="http://localhost:$ARG_PORT/health"
+
+health_ready() {
+  curl --fail --silent --max-time 2 "$HEALTH_URL" > /dev/null
+}
+
+mkdir -p "$RUN_DIR" "$(dirname "$SERVICE_LOG")"
+
+install_deadline=$((SECONDS + 120))
+until [ -x "$MUX_BIN" ]; do
+  if [ "$SECONDS" -ge "$install_deadline" ]; then
+    printf 'Error: Mux was not installed within 120 seconds. Installation log: %s\n' "$INSTALL_LOG" >&2
+    exit 1
+  fi
+  sleep 2
+done
+
+if health_ready; then
+  printf 'Mux is already healthy at %s.\n' "$HEALTH_URL"
+  exit 0
+fi
+
+if [ -f "$PID_FILE" ]; then
+  existing_pid="$(cat "$PID_FILE")"
+  existing_command=""
+  if [[ "$existing_pid" =~ ^[0-9]+$ ]] && [ -r "/proc/$existing_pid/cmdline" ]; then
+    existing_command="$(tr '\0' ' ' < "/proc/$existing_pid/cmdline")"
+  fi
+
+  if kill -0 "$existing_pid" 2> /dev/null && [[ "$existing_command" == *"$MUX_BIN"* ]]; then
+    printf 'Error: Mux process %s is running but its health check is failing.\n' "$existing_pid" >&2
+    exit 1
+  fi
+
+  rm -f "$PID_FILE"
+fi
+
+WORKDIR="$(printf '%s' "$ARG_WORKDIR_B64" | base64 --decode)"
+WORKDIR="$${WORKDIR/#\~/$HOME}"
+WORKDIR="$${WORKDIR//\$HOME/$HOME}"
+
+if [ ! -d "$WORKDIR" ]; then
+  printf 'Error: configured Mux project directory does not exist: %s.\n' "$WORKDIR" >&2
+  exit 1
+fi
+
+printf 'Starting Mux on port %s for %s.\n' "$ARG_PORT" "$WORKDIR"
+nohup env MUX_SERVER_AUTH_TOKEN="$ARG_AUTH_TOKEN" \
+  "$MUX_BIN" server \
+  --port "$ARG_PORT" \
+  --add-project "$WORKDIR" \
+  >> "$SERVICE_LOG" 2>&1 &
+mux_pid=$!
+printf '%s\n' "$mux_pid" > "$PID_FILE"
+
+for _ in $(seq 1 60); do
+  if health_ready; then
+    printf 'Mux is ready at %s.\n' "$HEALTH_URL"
+    exit 0
+  fi
+
+  if ! kill -0 "$mux_pid" 2> /dev/null; then
+    printf 'Error: Mux exited before becoming healthy. See %s.\n' "$SERVICE_LOG" >&2
+    exit 1
+  fi
+
+  sleep 1
+done
+
+kill "$mux_pid" 2> /dev/null || true
+rm -f "$PID_FILE"
+printf 'Error: Mux did not become healthy within 60 seconds. See %s.\n' "$SERVICE_LOG" >&2
+exit 1

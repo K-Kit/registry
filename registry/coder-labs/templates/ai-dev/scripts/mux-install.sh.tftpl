@@ -1,0 +1,44 @@
+#!/usr/bin/env bash
+
+if [ -f "$HOME/.bashrc" ]; then
+  # shellcheck disable=SC1090
+  source "$HOME/.bashrc"
+fi
+
+set -euo pipefail
+
+ARG_MUX_VERSION='${ARG_MUX_VERSION}'
+MODULE_ROOT="$HOME/.coder-modules/coder/mux"
+RUNTIME_DIR="$MODULE_ROOT/runtime"
+NPM_DIR="$RUNTIME_DIR/npm"
+MUX_BIN="$RUNTIME_DIR/mux"
+
+if [ -x "$MUX_BIN" ]; then
+  printf 'Mux is already installed at %s.\n' "$MUX_BIN"
+  exit 0
+fi
+
+if ! command -v node > /dev/null 2>&1 || ! command -v npm > /dev/null 2>&1; then
+  printf 'Error: Node.js and npm are required to install Mux.\n' >&2
+  exit 1
+fi
+
+mkdir -p "$NPM_DIR"
+cd "$NPM_DIR"
+[ -f package.json ] || printf '{}\n' > package.json
+
+printf 'Installing Mux %s into %s.\n' "$ARG_MUX_VERSION" "$RUNTIME_DIR"
+npm install \
+  --no-audit \
+  --no-fund \
+  --omit=dev \
+  --ignore-scripts \
+  "mux@$ARG_MUX_VERSION"
+
+if [ ! -f "$NPM_DIR/node_modules/.bin/mux" ]; then
+  printf 'Error: Mux installation completed without producing its CLI binary.\n' >&2
+  exit 1
+fi
+
+ln -sf "$NPM_DIR/node_modules/.bin/mux" "$MUX_BIN"
+printf 'Mux installation completed at %s.\n' "$MUX_BIN"

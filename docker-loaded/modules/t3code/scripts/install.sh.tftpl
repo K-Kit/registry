@@ -87,6 +87,9 @@ install_build_tools
 
 export PATH="$NODE_HOME/bin:$PATH"
 
+# npm 12 blocks dependency install scripts unless the project explicitly approves them.
+printf '%s\n' '{"name":"coder-t3code-runtime","private":true,"allowScripts":{"node-pty":true,"msgpackr-extract":true}}' > "$RUNTIME_DIR/package.json"
+
 current_version="$(installed_version || true)"
 if [ -x "$T3CODE_BIN" ] && { [ "$ARG_T3CODE_VERSION" = "latest" ] || [ "$current_version" = "$ARG_T3CODE_VERSION" ]; }; then
   printf 'T3 Code %s is already installed in %s.\n' "$current_version" "$RUNTIME_DIR"

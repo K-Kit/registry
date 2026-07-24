@@ -8,7 +8,7 @@ tags: [gcp, docker, container, ai, ide]
 
 # GCP Loaded Container
 
-Provision a Google Compute Engine VM that runs the Coder workspace inside a privileged OCI container. The container includes code-server, Claude Code, Codex, JupyterLab, File Browser, Git configuration, dotfiles, and personalization modules.
+Provision a Google Compute Engine VM that runs the Coder workspace inside a privileged OCI container. The container includes code-server, Claude Code, Codex, T3 Code, JupyterLab, File Browser, Git configuration, dotfiles, and personalization modules.
 
 ## Prerequisites
 
@@ -19,6 +19,8 @@ The selected container image must be Debian or Ubuntu based, provide Bash and pa
 ## Architecture
 
 Each running workspace creates one Compute Engine VM using Google's container-optimized host image. The VM launches a privileged workspace container with host networking. Shared runtime prerequisites—including `uv`, Python, Zsh, unzip, and native build tools—are installed inside the container before the Coder agent starts, preventing module installer races.
+
+T3 Code is exposed as an owner-only web app for the installed Codex and Claude Code providers. Set the sensitive template variable `t3code_pairing_secret` to a secret of at least 12 characters when clients need a stable pairing credential; leave it empty to use T3 Code-generated pairing tokens.
 
 The VM boot disk and workspace container are deleted when the workspace stops. Use the existing `gcp-loaded` template when persistent VM storage is required.
 

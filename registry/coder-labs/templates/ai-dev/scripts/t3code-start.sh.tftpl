@@ -1,0 +1,205 @@
+#!/usr/bin/env bash
+
+if [ -f "$HOME/.bashrc" ]; then
+  # shellcheck disable=SC1090
+  source "$HOME/.bashrc"
+fi
+
+set -euo pipefail
+
+ARG_AUTO_BOOTSTRAP_PROJECT='${ARG_AUTO_BOOTSTRAP_PROJECT}'
+ARG_PAIRING_PROXY_B64='${ARG_PAIRING_PROXY_B64}'
+ARG_PAIRING_PROXY_PORT='${ARG_PAIRING_PROXY_PORT}'
+ARG_PORT='${ARG_PORT}'
+ARG_WORKDIR_B64='${ARG_WORKDIR_B64}'
+MODULE_ROOT="$HOME/.coder-modules/coder/t3code"
+NODE_HOME="$MODULE_ROOT/node"
+RUNTIME_DIR="$MODULE_ROOT/runtime"
+T3CODE_BIN="$RUNTIME_DIR/node_modules/.bin/t3"
+DATA_DIR="$MODULE_ROOT/data"
+SCRIPTS_DIR="$MODULE_ROOT/scripts"
+RUN_DIR="$${XDG_RUNTIME_DIR:-/tmp}/coder-t3code-$${UID}"
+T3CODE_PID_FILE="$RUN_DIR/t3code.pid"
+PROXY_PID_FILE="$RUN_DIR/pairing-proxy.pid"
+PAIRING_PROXY_SCRIPT="$SCRIPTS_DIR/pairing-proxy.mjs"
+SERVICE_LOG="$MODULE_ROOT/logs/t3code.log"
+PROXY_LOG="$MODULE_ROOT/logs/pairing-proxy.log"
+INSTALL_LOG="$MODULE_ROOT/logs/install.log"
+HEALTH_URL="http://127.0.0.1:$ARG_PORT/"
+PROXY_HEALTH_URL="http://127.0.0.1:$ARG_PAIRING_PROXY_PORT/__health"
+
+export PATH="$NODE_HOME/bin:$PATH"
+
+http_ready() {
+  local url="$1"
+
+  if command -v curl > /dev/null 2>&1; then
+    curl --fail --silent --max-time 2 "$url" > /dev/null
+    return
+  fi
+
+  node -e '
+    const http = require("node:http");
+    const request = http.get(process.argv[1], { timeout: 2000 }, (response) => {
+      response.resume();
+      process.exit(response.statusCode >= 200 && response.statusCode < 400 ? 0 : 1);
+    });
+    request.on("timeout", () => request.destroy());
+    request.on("error", () => process.exit(1));
+  ' "$url"
+}
+
+port_in_use() {
+  local port="$1"
+
+  node -e '
+    const net = require("node:net");
+    const socket = net.createConnection({
+      host: "127.0.0.1",
+      port: Number(process.argv[1]),
+      timeout: 500,
+    });
+    socket.on("connect", () => {
+      socket.destroy();
+      process.exit(0);
+    });
+    socket.on("timeout", () => {
+      socket.destroy();
+      process.exit(1);
+    });
+    socket.on("error", () => process.exit(1));
+  ' "$port"
+}
+
+process_matches() {
+  local pid="$1"
+  local expected="$2"
+  local command_line=""
+
+  if [[ "$pid" =~ ^[0-9]+$ ]] && [ -r "/proc/$pid/cmdline" ]; then
+    command_line="$(tr '\0' ' ' < "/proc/$pid/cmdline")"
+  fi
+
+  kill -0 "$pid" 2> /dev/null && [[ "$command_line" == *"$expected"* ]]
+}
+
+wait_for_health() {
+  local url="$1"
+  local pid="$2"
+  local name="$3"
+  local log_path="$4"
+
+  for _ in $(seq 1 60); do
+    if http_ready "$url"; then
+      printf '%s is ready at %s.\n' "$name" "$url"
+      return 0
+    fi
+
+    if ! kill -0 "$pid" 2> /dev/null; then
+      wait "$pid" || exit_code=$?
+      printf 'Error: %s exited before becoming healthy (exit code %s). See %s.\n' \
+        "$name" "$${exit_code:-unknown}" "$log_path" >&2
+      return 1
+    fi
+
+    sleep 1
+  done
+
+  printf 'Error: %s did not become healthy within 60 seconds. See %s.\n' \
+    "$name" "$log_path" >&2
+  kill "$pid" 2> /dev/null || true
+  return 1
+}
+
+mkdir -p "$DATA_DIR" "$SCRIPTS_DIR" "$RUN_DIR" "$(dirname "$SERVICE_LOG")"
+printf '%s' "$ARG_PAIRING_PROXY_B64" | base64 --decode > "$PAIRING_PROXY_SCRIPT"
+chmod 700 "$PAIRING_PROXY_SCRIPT"
+
+install_deadline=$((SECONDS + 120))
+until [ -x "$T3CODE_BIN" ]; do
+  if [ "$SECONDS" -ge "$install_deadline" ]; then
+    printf 'Error: T3 Code was not installed within 120 seconds. Installation log: %s\n' "$INSTALL_LOG" >&2
+    exit 1
+  fi
+  sleep 2
+done
+
+WORKDIR="$(printf '%s' "$ARG_WORKDIR_B64" | base64 --decode)"
+WORKDIR="$${WORKDIR/#\~/$HOME}"
+WORKDIR="$${WORKDIR//\$HOME/$HOME}"
+
+if [ ! -d "$WORKDIR" ]; then
+  printf 'Error: configured T3 Code working directory does not exist: %s.\n' "$WORKDIR" >&2
+  exit 1
+fi
+
+if ! http_ready "$HEALTH_URL"; then
+  if [ -f "$T3CODE_PID_FILE" ]; then
+    existing_pid="$(cat "$T3CODE_PID_FILE")"
+    if process_matches "$existing_pid" "$T3CODE_BIN"; then
+      printf 'Error: T3 Code process %s is running but its health check is failing.\n' "$existing_pid" >&2
+      exit 1
+    fi
+    rm -f "$T3CODE_PID_FILE"
+  fi
+
+  if port_in_use "$ARG_PORT"; then
+    printf 'Error: port %s is already used by another process.\n' "$ARG_PORT" >&2
+    exit 1
+  fi
+
+  start_args=(
+    start
+    --mode web
+    --host 127.0.0.1
+    --port "$ARG_PORT"
+    --base-dir "$DATA_DIR"
+    --no-browser
+  )
+
+  if [ "$ARG_AUTO_BOOTSTRAP_PROJECT" = "true" ]; then
+    start_args+=(--auto-bootstrap-project-from-cwd)
+  fi
+
+  printf 'Starting T3 Code at %s with state stored under %s.\n' "$HEALTH_URL" "$DATA_DIR"
+  nohup "$T3CODE_BIN" "$${start_args[@]}" "$WORKDIR" >> "$SERVICE_LOG" 2>&1 &
+  t3code_pid=$!
+  printf '%s\n' "$t3code_pid" > "$T3CODE_PID_FILE"
+  wait_for_health "$HEALTH_URL" "$t3code_pid" "T3 Code" "$SERVICE_LOG"
+else
+  printf 'T3 Code is already healthy at %s.\n' "$HEALTH_URL"
+fi
+
+if http_ready "$PROXY_HEALTH_URL"; then
+  printf 'T3 Code pairing proxy is already healthy at %s.\n' "$PROXY_HEALTH_URL"
+  exit 0
+fi
+
+if [ -f "$PROXY_PID_FILE" ]; then
+  existing_proxy_pid="$(cat "$PROXY_PID_FILE")"
+  if process_matches "$existing_proxy_pid" "$PAIRING_PROXY_SCRIPT"; then
+    printf 'Error: T3 Code pairing proxy process %s is running but unhealthy.\n' "$existing_proxy_pid" >&2
+    exit 1
+  fi
+  rm -f "$PROXY_PID_FILE"
+fi
+
+if port_in_use "$ARG_PAIRING_PROXY_PORT"; then
+  printf 'Error: pairing proxy port %s is already used by another process.\n' "$ARG_PAIRING_PROXY_PORT" >&2
+  exit 1
+fi
+
+printf 'Starting the T3 Code pairing proxy on port %s.\n' "$ARG_PAIRING_PROXY_PORT"
+nohup env \
+  T3CODE_BIN="$T3CODE_BIN" \
+  T3CODE_DATA_DIR="$DATA_DIR" \
+  T3CODE_PROXY_PORT="$ARG_PAIRING_PROXY_PORT" \
+  T3CODE_TARGET_PORT="$ARG_PORT" \
+  node "$PAIRING_PROXY_SCRIPT" >> "$PROXY_LOG" 2>&1 &
+proxy_pid=$!
+printf '%s\n' "$proxy_pid" > "$PROXY_PID_FILE"
+wait_for_health \
+  "$PROXY_HEALTH_URL" \
+  "$proxy_pid" \
+  "T3 Code pairing proxy" \
+  "$PROXY_LOG"
