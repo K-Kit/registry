@@ -149,3 +149,5 @@ gha-creds-*.json
 
 # IDEs
 .idea
+.omo
+.omc
