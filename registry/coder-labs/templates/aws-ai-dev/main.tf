@@ -226,7 +226,8 @@ locals {
     ARG_GROK_VERSION = "latest"
   })
   mux_install_script = templatefile("${path.module}/scripts/mux-install.sh.tftpl", {
-    ARG_MUX_VERSION = "next"
+    ARG_MUX_VERSION  = "next"
+    ARG_NODE_VERSION = "24.18.0"
   })
   mux_start_script = templatefile("${path.module}/scripts/mux-start.sh.tftpl", {
     ARG_AUTH_TOKEN  = try(random_password.mux_auth_token[0].result, "")
@@ -282,7 +283,7 @@ resource "coder_agent" "main" {
   arch               = "amd64"
   auth               = "aws-instance-identity"
   os                 = "linux"
-  connection_timeout = 600
+  connection_timeout = 900
 
   startup_script = <<-EOT
     #!/bin/bash
@@ -737,8 +738,9 @@ resource "aws_instance" "workspace" {
   user_data_replace_on_change = true
 
   user_data = templatefile("${path.module}/cloud-init/startup.sh.tftpl", {
-    INIT_SCRIPT_B64 = base64encode(coder_agent.main.init_script)
-    HOME_VOLUME_ID  = aws_ebs_volume.home.id
+    ARG_INSTALL_T3CODE = tostring(contains(local.selected_interfaces, "T3 Code"))
+    INIT_SCRIPT_B64    = base64encode(coder_agent.main.init_script)
+    HOME_VOLUME_ID     = aws_ebs_volume.home.id
   })
 
   root_block_device {

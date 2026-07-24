@@ -153,7 +153,8 @@ locals {
     ARG_GROK_VERSION = "latest"
   })
   mux_install_script = templatefile("${path.module}/scripts/mux-install.sh.tftpl", {
-    ARG_MUX_VERSION = "next"
+    ARG_MUX_VERSION  = "next"
+    ARG_NODE_VERSION = "24.18.0"
   })
   mux_start_script = templatefile("${path.module}/scripts/mux-start.sh.tftpl", {
     ARG_AUTH_TOKEN  = try(random_password.mux_auth_token[0].result, "")

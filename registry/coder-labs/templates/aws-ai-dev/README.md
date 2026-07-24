@@ -59,7 +59,8 @@ deployment, package registries, and selected Git hosts.
 - A default VPC with an available subnet, or an explicit `subnet_id` template
   variable
 - Outbound network connectivity, using either a public IP or private NAT/egress
-- Coder 2.24 or newer for selectable JetBrains launchers
+- Coder 2.30 or newer for coordinated startup scripts and selectable JetBrains
+  launchers
 - Wildcard workspace application access for subdomain-based apps
 - Optional GitHub and GitLab external authentication providers named `github`
   and `gitlab`

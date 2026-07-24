@@ -3,11 +3,13 @@ set -euo pipefail
 
 exec > >(tee -a /var/log/coder-bootstrap.log) 2>&1
 
-if ! id coder >/dev/null 2>&1; then
+ARG_INSTALL_T3CODE='${ARG_INSTALL_T3CODE}'
+
+if ! id coder > /dev/null 2>&1; then
   useradd --create-home --shell /bin/bash coder
 fi
 
-printf 'coder ALL=(ALL) NOPASSWD:ALL\n' >/etc/sudoers.d/99-coder
+printf 'coder ALL=(ALL) NOPASSWD:ALL\n' > /etc/sudoers.d/99-coder
 chmod 0440 /etc/sudoers.d/99-coder
 
 home_device=/dev/disk/by-id/google-coder-home
@@ -23,7 +25,7 @@ if [ ! -b "$home_device" ]; then
   exit 1
 fi
 
-if ! blkid "$home_device" >/dev/null 2>&1; then
+if ! blkid "$home_device" > /dev/null 2>&1; then
   mkfs.ext4 -F -L coder-home "$home_device"
 fi
 
@@ -41,7 +43,13 @@ fi
 mkdir -p /home/coder/projects
 chown coder:coder /home/coder/projects
 
+if [ "$ARG_INSTALL_T3CODE" = "true" ]; then
+  export DEBIAN_FRONTEND=noninteractive
+  apt-get -o APT::Update::Lock::Timeout=300 -o DPkg::Lock::Timeout=300 update
+  apt-get -o DPkg::Lock::Timeout=300 install -y build-essential python3
+fi
+
 init_script=/usr/local/bin/coder-agent-init
-printf '%s' '${INIT_SCRIPT_B64}' | base64 --decode >"$init_script"
+printf '%s' '${INIT_SCRIPT_B64}' | base64 --decode > "$init_script"
 chmod 0755 "$init_script"
 exec sudo -u coder -H bash "$init_script"

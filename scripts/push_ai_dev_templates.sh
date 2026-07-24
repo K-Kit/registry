@@ -9,7 +9,6 @@ failed_templates=()
 
 templates=(
   "ai-dev"
-  "aws-ai-dev"
   "gcp-ai-dev"
 )
 

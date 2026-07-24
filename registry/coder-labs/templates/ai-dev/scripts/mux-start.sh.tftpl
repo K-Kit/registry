@@ -11,12 +11,15 @@ ARG_AUTH_TOKEN='${ARG_AUTH_TOKEN}'
 ARG_PORT='${ARG_PORT}'
 ARG_WORKDIR_B64='${ARG_WORKDIR_B64}'
 MODULE_ROOT="$HOME/.coder-modules/coder/mux"
+NODE_HOME="$MODULE_ROOT/node"
 MUX_BIN="$MODULE_ROOT/runtime/mux"
 RUN_DIR="$${XDG_RUNTIME_DIR:-/tmp}/coder-mux-$${UID}"
 PID_FILE="$RUN_DIR/mux.pid"
 SERVICE_LOG="$MODULE_ROOT/logs/mux.log"
 INSTALL_LOG="$MODULE_ROOT/logs/install.log"
 HEALTH_URL="http://localhost:$ARG_PORT/health"
+
+export PATH="$NODE_HOME/bin:$PATH"
 
 health_ready() {
   curl --fail --silent --max-time 2 "$HEALTH_URL" > /dev/null
