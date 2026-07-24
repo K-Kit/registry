@@ -166,6 +166,22 @@ if ! id -u "${local.linux_user}" >/dev/null 2>&1; then
   echo "${local.linux_user} ALL=(ALL) NOPASSWD:ALL" > /etc/sudoers.d/coder-user
 fi
 
+# Install shared prerequisites before the agent registers module scripts. Module
+# scripts start concurrently, so installing these from the agent startup script
+# is too late for JupyterLab, dotfiles, Bun, and native Node dependencies.
+export DEBIAN_FRONTEND=noninteractive
+printf '%s\n' \
+  'DPkg::Lock::Timeout "300";' \
+  'APT::Update::Lock::Timeout "300";' \
+  > /etc/apt/apt.conf.d/99coder-lock-timeout
+apt-get update -qq
+apt-get install -y build-essential ca-certificates curl python3 tar unzip zsh
+
+if ! command -v uv >/dev/null 2>&1; then
+  sudo -H -u "${local.linux_user}" sh -c 'curl -LsSf https://astral.sh/uv/install.sh | sh'
+  ln -sf "/home/${local.linux_user}/.local/bin/uv" /usr/local/bin/uv
+fi
+
 exec sudo -u "${local.linux_user}" sh -c '${coder_agent.main.init_script}'
 EOMETA
 }

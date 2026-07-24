@@ -68,8 +68,8 @@ install_build_tools() {
   fi
 
   printf 'Installing native build dependencies with apt.\n'
-  sudo apt-get update
-  sudo apt-get install -y build-essential python3
+  sudo apt-get -o APT::Update::Lock::Timeout=300 -o DPkg::Lock::Timeout=300 update
+  sudo apt-get -o DPkg::Lock::Timeout=300 install -y build-essential python3
 }
 
 installed_version() {

@@ -16,7 +16,7 @@ Install and authenticate at least one supported provider CLI before using T3 Cod
 module "t3code" {
   count    = data.coder_workspace.me.start_count
   source   = "registry.coder.com/coder/t3code/coder"
-  version  = "1.1.0"
+  version  = "1.1.1"
   agent_id = coder_agent.main.id
 }
 ```
@@ -27,7 +27,7 @@ module "t3code" {
 module "t3code" {
   count    = data.coder_workspace.me.start_count
   source   = "registry.coder.com/coder/t3code/coder"
-  version  = "1.1.0"
+  version  = "1.1.1"
   agent_id = coder_agent.main.id
   workdir  = "/home/coder/project"
 }

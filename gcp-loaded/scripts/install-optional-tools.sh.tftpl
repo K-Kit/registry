@@ -12,10 +12,10 @@ MODULE_DIRECTORY="$${HOME}/.coder-modules/coder/gcp-loaded"
 mkdir -p "$${MODULE_DIRECTORY}/logs"
 exec > >(tee -a "$${MODULE_DIRECTORY}/logs/install-optional-tools.log") 2>&1
 
-export PATH="$${HOME}/.local/bin:$${HOME}/.local/share/mise/shims:$${HOME}/.bun/bin:$${PATH}"
+export PATH="$${HOME}/.local/bin:$${HOME}/.bun/bin:$${PATH}"
 
 persist_user_path() {
-  local export_line='export PATH="$HOME/.local/bin:$HOME/.local/share/mise/shims:$HOME/.bun/bin:$PATH"'
+  local export_line='export PATH="$HOME/.local/bin:$HOME/.bun/bin:$PATH"'
   local profile
 
   for profile in "$${HOME}/.profile" "$${HOME}/.bashrc"; do
@@ -26,37 +26,13 @@ persist_user_path() {
   done
 }
 
-ensure_system_prerequisites() {
-  if ! command -v apt-get > /dev/null 2>&1; then
-    return
-  fi
-
-  # Every module installer shares the host package manager. Make apt wait for
-  # another installer instead of failing immediately when startup is concurrent.
-  printf '%s\n' \
-    'DPkg::Lock::Timeout "300";' \
-    'APT::Update::Lock::Timeout "300";' \
-    | sudo tee /etc/apt/apt.conf.d/99coder-lock-timeout > /dev/null
-
-  sudo apt-get update -qq
-  sudo apt-get install -y build-essential ca-certificates curl python3 tar unzip zsh
-}
 
 ensure_python_tools() {
-  if ! command -v mise > /dev/null 2>&1; then
-    curl -fsSL https://mise.run | sh
+  if ! command -v uv > /dev/null 2>&1; then
+    echo "uv must be installed before the Coder agent starts." >&2
+    exit 1
   fi
 
-  if ! mise which uv > /dev/null 2>&1; then
-    mise use --global uv@latest
-  fi
-
-  # Coder startup scripts do not necessarily activate mise, so also expose uv
-  # through ~/.local/bin, which is already on PATH.
-  mkdir -p "$${HOME}/.local/bin"
-  ln -sf "$(mise which uv)" "$${HOME}/.local/bin/uv"
-
-  # The JupyterLab module installs into and launches from this virtual environment.
   if [ ! -x "$${HOME}/.venv/bin/python" ]; then
     uv venv "$${HOME}/.venv"
   fi
@@ -116,7 +92,6 @@ ensure_bun() {
   export PATH="$${HOME}/.bun/bin:$${PATH}"
 }
 
-ensure_system_prerequisites
 persist_user_path
 ensure_python_tools
 
