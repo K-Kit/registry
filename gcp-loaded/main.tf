@@ -69,15 +69,15 @@ resource "google_compute_disk" "root" {
 }
 
 resource "coder_agent" "main" {
-  auth           = "google-instance-identity"
-  arch           = "amd64"
-  os             = "linux"
+  auth = "google-instance-identity"
+  arch = "amd64"
+  os   = "linux"
   startup_script = templatefile("${path.module}/scripts/install-optional-tools.sh.tftpl", {
-    ARG_INSTALL_GEMINI_CLI             = tostring(data.coder_parameter.install_gemini_cli.value)
+    ARG_INSTALL_GEMINI_CLI            = tostring(data.coder_parameter.install_gemini_cli.value)
     ARG_INSTALL_OH_MY_CLAUDE_SISYPHUS = tostring(data.coder_parameter.install_oh_my_claude_sisyphus.value)
-    ARG_INSTALL_OH_MY_CODEX            = tostring(data.coder_parameter.install_oh_my_codex.value)
-    ARG_INSTALL_OH_MY_OPENAGENT        = tostring(data.coder_parameter.install_oh_my_openagent.value)
-    ARG_INSTALL_OPENCODE_CLI           = tostring(data.coder_parameter.install_opencode_cli.value)
+    ARG_INSTALL_OH_MY_CODEX           = tostring(data.coder_parameter.install_oh_my_codex.value)
+    ARG_INSTALL_OH_MY_OPENAGENT       = tostring(data.coder_parameter.install_oh_my_openagent.value)
+    ARG_INSTALL_OPENCODE_CLI          = tostring(data.coder_parameter.install_opencode_cli.value)
   })
 
   metadata {
