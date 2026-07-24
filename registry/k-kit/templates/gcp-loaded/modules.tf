@@ -223,7 +223,7 @@ module "vscode-desktop" {
 
 module "t3code" {
   count    = data.coder_workspace.me.start_count
-  source   = "./modules/t3code"
+  source   = "../../modules/t3code"
   agent_id = coder_agent.main.id
   workdir  = "$HOME"
 }

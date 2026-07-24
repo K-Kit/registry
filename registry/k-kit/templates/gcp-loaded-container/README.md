@@ -1,7 +1,7 @@
 ---
 display_name: GCP Loaded Container
 description: Run a loaded Coder workspace in a privileged container on Google Compute Engine
-icon: ../.icons/gcp.svg
+icon: ../../../../.icons/gcp.svg
 verified: false
 tags: [gcp, docker, container, ai, ide]
 ---

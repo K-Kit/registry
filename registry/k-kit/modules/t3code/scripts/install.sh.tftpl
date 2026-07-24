@@ -4,7 +4,7 @@ set -euo pipefail
 
 ARG_NODE_VERSION='${ARG_NODE_VERSION}'
 ARG_T3CODE_VERSION='${ARG_T3CODE_VERSION}'
-MODULE_ROOT="$HOME/.coder-modules/coder/t3code"
+MODULE_ROOT="$HOME/.coder-modules/k-kit/t3code"
 NODE_HOME="$MODULE_ROOT/node"
 RUNTIME_DIR="$MODULE_ROOT/runtime"
 PACKAGE_DIR="$RUNTIME_DIR/node_modules/t3"
@@ -23,7 +23,7 @@ install_node() {
   local archive
   local download_url
 
-  if [ -x "$NODE_HOME/bin/node" ] && [ "$($NODE_HOME/bin/node --version)" = "v$ARG_NODE_VERSION" ]; then
+  if [ -x "$NODE_HOME/bin/node" ] && [ "$("$NODE_HOME/bin/node" --version)" = "v$ARG_NODE_VERSION" ]; then
     return
   fi
 
@@ -113,3 +113,4 @@ fi
 
 NODE_PATH="$RUNTIME_DIR/node_modules" "$NODE_HOME/bin/node" -e 'require("node-pty")'
 printf 'Installed T3 Code %s successfully.\n' "$(installed_version)"
+

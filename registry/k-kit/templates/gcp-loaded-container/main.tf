@@ -51,7 +51,7 @@ locals {
     echo 'APT::Update::Lock::Timeout "300";' | sudo tee -a /etc/apt/apt.conf.d/99coder-lock-timeout >/dev/null
     sudo apt-get update -qq
     sudo apt-get install -y build-essential ca-certificates curl python3 tar unzip zsh
-    mkdir -p "$HOME/.coder-modules/coder/filebrowser"
+    mkdir -p "$HOME/.coder-modules/k-kit/filebrowser"
 
     if ! command -v uv >/dev/null 2>&1; then
       curl -LsSf https://astral.sh/uv/install.sh | sh

@@ -69,7 +69,7 @@ module "filebrowser" {
   version = "1.1.5"
 
   agent_id      = coder_agent.main.id
-  database_path = "$HOME/.coder-modules/coder/filebrowser/filebrowser.db"
+  database_path = "$HOME/.coder-modules/k-kit/filebrowser/filebrowser.db"
   folder        = "$HOME"
   port          = 13339
 }
@@ -113,7 +113,7 @@ module "personalize" {
 
 module "t3code" {
   count          = data.coder_workspace.me.start_count
-  source         = "./modules/t3code"
+  source         = "../../modules/t3code"
   agent_id       = coder_agent.main.id
   pairing_secret = var.t3code_pairing_secret
   workdir        = "$HOME"

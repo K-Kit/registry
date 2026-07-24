@@ -1,9 +1,9 @@
 ---
 display_name: Google Compute Engine (Linux)
 description: Provision Google Compute Engine instances as Coder workspaces
-icon: ../../../site/static/icon/gcp.png
-maintainer_github: coder
-verified: true
+icon: ../../../../.icons/gcp.svg
+maintainer_github: K-Kit
+verified: false
 tags: [vm, linux, gcp]
 ---
 
@@ -59,7 +59,7 @@ Coder persists the root volume. The full filesystem is preserved when the worksp
 
 The workspace creation form lets users choose any Google Compute Engine machine type and boot image. The default zone is `us-west2-a` in Los Angeles.
 
-Optional workspace parameters can install Gemini CLI, OpenCode CLI, Oh My Codex, Oh My Claude, and Oh My OpenAgent. The npm-based tools use a user-local global prefix under `~/.local`, while Bun is installed under its standard user directory when Oh My OpenAgent is enabled. Installer output is written to `~/.coder-modules/coder/gcp-loaded/logs/install-optional-tools.log`.
+Optional workspace parameters can install Gemini CLI, OpenCode CLI, Oh My Codex, Oh My Claude, and Oh My OpenAgent. The npm-based tools use a user-local global prefix under `~/.local`, while Bun is installed under its standard user directory when Oh My OpenAgent is enabled. Installer output is written to `~/.coder-modules/k-kit/gcp-loaded/logs/install-optional-tools.log`.
 
 The template also includes T3 Code as an owner-only web app for the installed Codex, Claude Code, Cursor, and OpenCode providers.
 

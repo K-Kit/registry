@@ -53,7 +53,7 @@ run "defaults_are_secure" {
   }
 
   assert {
-    condition     = local.module_directory == "$HOME/.coder-modules/coder/t3code"
+    condition     = local.module_directory == "$HOME/.coder-modules/k-kit/t3code"
     error_message = "The module must use the standard per-module data root."
   }
 

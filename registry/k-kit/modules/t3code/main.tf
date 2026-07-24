@@ -103,7 +103,7 @@ variable "post_install_script" {
 }
 
 locals {
-  module_directory = "$HOME/.coder-modules/coder/t3code"
+  module_directory = "$HOME/.coder-modules/k-kit/t3code"
 
   install_script = templatefile("${path.module}/scripts/install.sh.tftpl", {
     ARG_NODE_VERSION   = var.node_version
