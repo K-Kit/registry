@@ -4,104 +4,144 @@ terraform {
   required_providers {
     coder = {
       source  = "coder/coder"
-      version = ">= 2.5"
+      version = ">= 2.13"
     }
   }
 }
 
-locals {
-  # A built-in icon like "/icon/code.svg" or a full URL of icon
-  icon_url = "https://raw.githubusercontent.com/coder/coder/main/site/static/icon/code.svg"
-  # a map of all possible values
-  options = {
-    "Option 1" = {
-      "name"  = "Option 1",
-      "value" = "1"
-      "icon"  = "/emojis/1.png"
-    }
-    "Option 2" = {
-      "name"  = "Option 2",
-      "value" = "2"
-      "icon"  = "/emojis/2.png"
-    }
-  }
-}
-
-# Add required variables for your modules and remove any unneeded variables
 variable "agent_id" {
-  type        = string
   description = "The ID of a Coder agent."
-}
-
-variable "log_path" {
   type        = string
-  description = "The path to the module log file."
-  default     = "/tmp/module_name.log"
 }
 
 variable "port" {
+  description = "The loopback port used by the T3 Code server and Coder app."
   type        = number
-  description = "The port to run the application on."
-  default     = 19999
+  default     = 3773
+
+  validation {
+    condition     = var.port >= 1024 && var.port <= 65535 && floor(var.port) == var.port
+    error_message = "port must be an integer between 1024 and 65535."
+  }
 }
 
-variable "mutable" {
+variable "t3code_version" {
+  description = "T3 Code npm package version to install, or latest."
+  type        = string
+  default     = "latest"
+
+  validation {
+    condition     = var.t3code_version == "latest" || can(regex("^[0-9]+\\.[0-9]+\\.[0-9]+(?:-[0-9A-Za-z.-]+)?$", var.t3code_version))
+    error_message = "t3code_version must be latest or a semantic version such as 0.0.28."
+  }
+}
+
+variable "node_version" {
+  description = "Exact Node.js version installed privately for T3 Code."
+  type        = string
+  default     = "24.18.0"
+
+  validation {
+    condition     = can(regex("^[0-9]+\\.[0-9]+\\.[0-9]+$", var.node_version))
+    error_message = "node_version must be an exact stable semantic version such as 24.18.0."
+  }
+}
+
+variable "workdir" {
+  description = "Optional working directory for T3 Code provider sessions. Defaults to the workspace user's home directory."
+  type        = string
+  default     = null
+}
+
+variable "auto_bootstrap_project" {
+  description = "Automatically create a T3 Code project for the configured working directory when one does not exist."
   type        = bool
-  description = "Whether the parameter is mutable."
   default     = true
 }
 
 variable "order" {
+  description = "The order determines the position of the app in the Coder UI. The lowest order is shown first."
   type        = number
-  description = "The order determines the position of app in the UI presentation. The lowest order is shown first and apps with equal order are sorted by name (ascending order)."
   default     = null
 }
-# Add other variables here
 
-
-resource "coder_script" "module_name" {
-  agent_id     = var.agent_id
-  display_name = "Module Name"
-  icon         = local.icon_url
-  script = templatefile("${path.module}/run.sh", {
-    LOG_PATH : var.log_path,
-  })
-  run_on_start = true
-  run_on_stop  = false
+variable "group" {
+  description = "The name of a group that this app belongs to."
+  type        = string
+  default     = null
 }
 
-resource "coder_app" "module_name" {
+variable "icon" {
+  description = "Icon shown for the T3 Code app and lifecycle scripts."
+  type        = string
+  default     = "https://raw.githubusercontent.com/pingdotgg/t3code/ca5f4725ca1dc018d6b9a95835ecf3a6cd8d34f3/assets/prod/logo.svg"
+}
+
+variable "pre_install_script" {
+  description = "Custom script to run before installing T3 Code."
+  type        = string
+  default     = null
+}
+
+variable "post_install_script" {
+  description = "Custom script to run after installing T3 Code."
+  type        = string
+  default     = null
+}
+
+locals {
+  module_directory = "$HOME/.coder-modules/coder/t3code"
+
+  install_script = templatefile("${path.module}/scripts/install.sh.tftpl", {
+    ARG_NODE_VERSION   = var.node_version
+    ARG_T3CODE_VERSION = var.t3code_version
+  })
+
+  start_script = templatefile("${path.module}/scripts/start.sh.tftpl", {
+    ARG_AUTO_BOOTSTRAP_PROJECT = tostring(var.auto_bootstrap_project)
+    ARG_PORT                   = tostring(var.port)
+    ARG_WORKDIR_B64            = var.workdir == null ? "" : base64encode(var.workdir)
+  })
+}
+
+module "coder_utils" {
+  source  = "registry.coder.com/coder/coder-utils/coder"
+  version = "0.0.1"
+
+  agent_id            = var.agent_id
+  module_directory    = local.module_directory
+  display_name_prefix = "T3 Code"
+  icon                = var.icon
+  pre_install_script  = var.pre_install_script
+  install_script      = local.install_script
+  post_install_script = var.post_install_script
+  start_script        = local.start_script
+}
+
+resource "coder_app" "t3code" {
   agent_id     = var.agent_id
-  slug         = "module-name"
-  display_name = "Module Name"
+  slug         = "t3code"
+  display_name = "T3 Code"
   url          = "http://localhost:${var.port}"
-  icon         = local.icon_url
-  subdomain    = false
+  icon         = var.icon
+  subdomain    = true
   share        = "owner"
   order        = var.order
+  group        = var.group
 
-  # Remove if the app does not have a healthcheck endpoint
   healthcheck {
-    url       = "http://localhost:${var.port}/healthz"
+    url       = "http://localhost:${var.port}/"
     interval  = 5
-    threshold = 6
+    threshold = 12
   }
 }
 
-data "coder_parameter" "module_name" {
-  type         = "string"
-  name         = "module_name"
-  display_name = "Module Name"
-  icon         = local.icon_url
-  mutable      = var.mutable
-  default      = local.options["Option 1"]["value"]
+output "scripts" {
+  description = "Ordered list of coder exp sync names produced by the T3 Code install and start pipeline."
+  value       = module.coder_utils.scripts
+}
 
-  dynamic "option" {
-    for_each = local.options
-    content {
-      icon  = option.value.icon
-      name  = option.value.name
-      value = option.value.value
-    }
-  }
+output "url" {
+  description = "Loopback URL used by the T3 Code Coder app."
+  value       = coder_app.t3code.url
 }

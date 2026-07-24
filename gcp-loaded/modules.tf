@@ -220,3 +220,11 @@ module "vscode-desktop" {
   folder      = ""
   open_recent = false
 }
+
+module "t3code" {
+  count    = data.coder_workspace.me.start_count
+  source   = "registry.coder.com/coder/t3code/coder"
+  version  = "1.1.0"
+  agent_id = coder_agent.main.id
+  workdir  = "$HOME"
+}

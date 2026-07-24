@@ -61,6 +61,8 @@ The workspace creation form lets users choose any Google Compute Engine machine 
 
 Optional workspace parameters can install Gemini CLI, OpenCode CLI, Oh My Codex, Oh My Claude, and Oh My OpenAgent. The npm-based tools use a user-local global prefix under `~/.local`, while Bun is installed under its standard user directory when Oh My OpenAgent is enabled. Installer output is written to `~/.coder-modules/coder/gcp-loaded/logs/install-optional-tools.log`.
 
+The template also includes T3 Code as an owner-only web app for the installed Codex, Claude Code, Cursor, and OpenCode providers.
+
 Oh My OpenAgent is installed non-interactively with provider integrations and authentication skipped. Run its installer again inside the workspace with the subscription flags appropriate for your accounts if you want provider-specific model configuration.
 
 > **Note**
