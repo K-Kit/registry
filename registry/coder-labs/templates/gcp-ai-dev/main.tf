@@ -6,14 +6,102 @@ terraform {
       source  = "coder/coder"
       version = ">= 2.13"
     }
-    docker = {
-      source  = "kreuzwerker/docker"
-      version = "~> 3.0"
+    google = {
+      source  = "hashicorp/google"
+      version = "~> 7.0"
     }
     random = {
       source  = "hashicorp/random"
       version = "~> 3.0"
     }
+  }
+}
+
+variable "project_id" {
+  description = "Google Cloud project in which to create workspace resources."
+  type        = string
+}
+
+variable "network" {
+  description = "VPC network name or self-link for workspace instances."
+  type        = string
+  default     = "default"
+}
+
+variable "subnetwork" {
+  description = "Optional subnetwork name or self-link. Leave empty to use the network's automatic subnetwork selection."
+  type        = string
+  default     = ""
+}
+
+variable "service_account_email" {
+  description = "Optional service account email for workspace instances. Leave empty to use the project's default Compute Engine service account."
+  type        = string
+  default     = ""
+}
+
+variable "assign_public_ip" {
+  description = "Assign an ephemeral public IPv4 address to workspace instances. Disable this when the network has private outbound connectivity."
+  type        = bool
+  default     = true
+}
+
+module "gcp_region" {
+  source  = "registry.coder.com/coder/gcp-region/coder"
+  version = "~> 1.0"
+  regions = ["us", "europe", "asia"]
+  default = "us-central1-a"
+}
+
+provider "google" {
+  project = var.project_id
+  zone    = module.gcp_region.value
+}
+
+data "coder_parameter" "machine_type" {
+  name         = "machine_type"
+  display_name = "Machine type"
+  description  = "Compute Engine machine type used while the workspace is running."
+  type         = "string"
+  form_type    = "dropdown"
+  default      = "e2-standard-2"
+  mutable      = false
+  order        = 1
+
+  option {
+    name  = "2 vCPU, 8 GiB RAM"
+    value = "e2-standard-2"
+  }
+
+  option {
+    name  = "4 vCPU, 16 GiB RAM"
+    value = "e2-standard-4"
+  }
+
+  option {
+    name  = "8 vCPU, 32 GiB RAM"
+    value = "e2-standard-8"
+  }
+
+  option {
+    name  = "16 vCPU, 64 GiB RAM"
+    value = "e2-standard-16"
+  }
+}
+
+data "coder_parameter" "home_disk_size" {
+  name         = "home_disk_size"
+  display_name = "Home disk size"
+  description  = "Persistent Disk size for /home/coder, in GiB."
+  type         = "number"
+  form_type    = "slider"
+  default      = 50
+  mutable      = false
+  order        = 2
+
+  validation {
+    min = 20
+    max = 500
   }
 }
 
@@ -24,7 +112,7 @@ data "coder_parameter" "repository_url" {
   type         = "string"
   default      = ""
   mutable      = false
-  order        = 1
+  order        = 10
 }
 
 data "coder_parameter" "ai_agents" {
@@ -35,7 +123,7 @@ data "coder_parameter" "ai_agents" {
   form_type    = "multi-select"
   default      = jsonencode(["Claude Code", "Codex", "OpenCode", "Gemini CLI", "Grok CLI"])
   mutable      = false
-  order        = 2
+  order        = 11
 
   option {
     name  = "Claude Code"
@@ -76,7 +164,7 @@ data "coder_parameter" "ai_interfaces" {
   form_type    = "multi-select"
   default      = jsonencode(["T3 Code", "Mux"])
   mutable      = false
-  order        = 3
+  order        = 12
 
   option {
     name  = "T3 Code"
@@ -99,7 +187,7 @@ data "coder_parameter" "enable_ai_gateway" {
   form_type    = "switch"
   default      = false
   mutable      = false
-  order        = 4
+  order        = 13
 }
 
 data "coder_parameter" "preview_port" {
@@ -109,7 +197,7 @@ data "coder_parameter" "preview_port" {
   type         = "number"
   default      = 3000
   mutable      = true
-  order        = 5
+  order        = 14
 
   validation {
     min = 1
@@ -117,12 +205,10 @@ data "coder_parameter" "preview_port" {
   }
 }
 
-data "coder_provisioner" "me" {}
 data "coder_workspace" "me" {}
 data "coder_workspace_owner" "me" {}
 
 locals {
-  container_image = "codercom/example-universal:ubuntu"
   projects_dir    = "/home/coder/projects"
   selected_agents = try(jsondecode(data.coder_parameter.ai_agents.value), [])
   selected_interfaces = length(local.selected_agents) == 0 ? [] : try(
@@ -172,9 +258,20 @@ data "coder_external_auth" "gitlab" {
   id    = "gitlab"
 }
 
+data "google_compute_default_service_account" "default" {
+  count = var.service_account_email == "" ? 1 : 0
+}
+
+data "google_compute_image" "ubuntu" {
+  family  = "ubuntu-2404-lts-amd64"
+  project = "ubuntu-os-cloud"
+}
+
 resource "coder_agent" "main" {
-  arch = data.coder_provisioner.me.arch
-  os   = "linux"
+  arch               = "amd64"
+  auth               = "google-instance-identity"
+  os                 = "linux"
+  connection_timeout = 600
 
   startup_script = <<-EOT
     #!/bin/bash
@@ -600,104 +697,104 @@ resource "coder_app" "preview" {
   }
 }
 
-resource "docker_image" "workspace" {
-  name         = local.container_image
-  keep_locally = true
-}
-
-resource "docker_volume" "home" {
+resource "google_compute_disk" "home" {
   name = "coder-${data.coder_workspace.me.id}-home"
+  size = data.coder_parameter.home_disk_size.value
+  type = "pd-balanced"
+  zone = module.gcp_region.value
+
+  labels = {
+    coder_owner        = substr(replace(lower(data.coder_workspace_owner.me.name), "/[^a-z0-9_-]/", "-"), 0, 63)
+    coder_owner_id     = data.coder_workspace_owner.me.id
+    coder_workspace_id = data.coder_workspace.me.id
+  }
 
   lifecycle {
     ignore_changes = all
   }
+}
 
-  labels {
-    label = "coder.owner"
-    value = data.coder_workspace_owner.me.name
+resource "google_compute_instance" "workspace" {
+  count                     = data.coder_workspace.me.start_count
+  name                      = "coder-${data.coder_workspace.me.id}"
+  machine_type              = data.coder_parameter.machine_type.value
+  zone                      = module.gcp_region.value
+  allow_stopping_for_update = true
+
+  boot_disk {
+    auto_delete = true
+
+    initialize_params {
+      image = data.google_compute_image.ubuntu.self_link
+      size  = 20
+      type  = "pd-balanced"
+    }
   }
 
-  labels {
-    label = "coder.owner_id"
-    value = data.coder_workspace_owner.me.id
+  attached_disk {
+    device_name = "coder-home"
+    mode        = "READ_WRITE"
+    source      = google_compute_disk.home.self_link
   }
 
-  labels {
-    label = "coder.workspace_id"
-    value = data.coder_workspace.me.id
+  network_interface {
+    network    = var.network
+    subnetwork = var.subnetwork != "" ? var.subnetwork : null
+
+    dynamic "access_config" {
+      for_each = var.assign_public_ip ? [1] : []
+      content {}
+    }
   }
 
-  labels {
-    label = "coder.workspace_name_at_creation"
-    value = data.coder_workspace.me.name
+  service_account {
+    email  = var.service_account_email != "" ? var.service_account_email : data.google_compute_default_service_account.default[0].email
+    scopes = ["cloud-platform"]
+  }
+
+  metadata = {
+    startup-script = templatefile("${path.module}/cloud-init/startup.sh.tftpl", {
+      INIT_SCRIPT_B64 = base64encode(coder_agent.main.init_script)
+    })
+  }
+
+  labels = {
+    coder_owner        = substr(replace(lower(data.coder_workspace_owner.me.name), "/[^a-z0-9_-]/", "-"), 0, 63)
+    coder_owner_id     = data.coder_workspace_owner.me.id
+    coder_workspace_id = data.coder_workspace.me.id
   }
 }
 
-resource "docker_container" "workspace" {
-  count    = data.coder_workspace.me.start_count
-  image    = docker_image.workspace.image_id
-  name     = "coder-${data.coder_workspace_owner.me.name}-${lower(data.coder_workspace.me.name)}"
-  hostname = data.coder_workspace.me.name
-  user     = "coder"
-
-  entrypoint = [
-    "sh",
-    "-c",
-    replace(coder_agent.main.init_script, "/localhost|127\\.0\\.0\\.1/", "host.docker.internal"),
-  ]
-
-  env = [
-    "CODER_AGENT_TOKEN=${coder_agent.main.token}",
-  ]
-
-  host {
-    host = "host.docker.internal"
-    ip   = "host-gateway"
-  }
-
-  volumes {
-    container_path = "/home/coder"
-    volume_name    = docker_volume.home.name
-    read_only      = false
-  }
-
-  labels {
-    label = "coder.owner"
-    value = data.coder_workspace_owner.me.name
-  }
-
-  labels {
-    label = "coder.owner_id"
-    value = data.coder_workspace_owner.me.id
-  }
-
-  labels {
-    label = "coder.workspace_id"
-    value = data.coder_workspace.me.id
-  }
-
-  labels {
-    label = "coder.workspace_name"
-    value = data.coder_workspace.me.name
-  }
-}
-
-resource "coder_metadata" "container" {
+resource "coder_metadata" "workspace" {
   count       = data.coder_workspace.me.start_count
-  resource_id = docker_container.workspace[count.index].id
+  resource_id = google_compute_instance.workspace[count.index].id
+
+  item {
+    key   = "zone"
+    value = module.gcp_region.value
+  }
+
+  item {
+    key   = "machine type"
+    value = data.coder_parameter.machine_type.value
+  }
 
   item {
     key   = "image"
-    value = local.container_image
+    value = data.google_compute_image.ubuntu.name
   }
+}
+
+resource "coder_metadata" "home" {
+  resource_id = google_compute_disk.home.id
 
   item {
-    key   = "home"
+    key   = "mount point"
     value = "/home/coder"
   }
 
   item {
-    key   = "projects"
-    value = local.projects_dir
+    key   = "size"
+    value = "${data.coder_parameter.home_disk_size.value} GiB"
   }
 }

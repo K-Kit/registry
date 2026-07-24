@@ -6,14 +6,89 @@ terraform {
       source  = "coder/coder"
       version = ">= 2.13"
     }
-    docker = {
-      source  = "kreuzwerker/docker"
-      version = "~> 3.0"
+    aws = {
+      source  = "hashicorp/aws"
+      version = "~> 6.0"
     }
     random = {
       source  = "hashicorp/random"
       version = "~> 3.0"
     }
+  }
+}
+
+module "aws_region" {
+  source  = "registry.coder.com/coder/aws-region/coder"
+  version = "~> 1.0"
+  default = "us-east-1"
+}
+
+provider "aws" {
+  region = module.aws_region.value
+}
+
+variable "subnet_id" {
+  description = "Optional subnet ID for workspace instances. Leave empty to use the first available subnet in the default VPC."
+  type        = string
+  default     = ""
+}
+
+variable "iam_instance_profile" {
+  description = "Optional IAM instance profile name to attach to workspace instances."
+  type        = string
+  default     = ""
+}
+
+variable "assign_public_ip" {
+  description = "Assign a public IPv4 address to the workspace instance. Disable this when the subnet has private outbound connectivity."
+  type        = bool
+  default     = true
+}
+
+data "coder_parameter" "instance_type" {
+  name         = "instance_type"
+  display_name = "Instance type"
+  description  = "EC2 instance type used while the workspace is running."
+  type         = "string"
+  form_type    = "dropdown"
+  default      = "t3.large"
+  mutable      = false
+  order        = 1
+
+  option {
+    name  = "2 vCPU, 4 GiB RAM"
+    value = "t3.medium"
+  }
+
+  option {
+    name  = "2 vCPU, 8 GiB RAM"
+    value = "t3.large"
+  }
+
+  option {
+    name  = "4 vCPU, 16 GiB RAM"
+    value = "t3.xlarge"
+  }
+
+  option {
+    name  = "8 vCPU, 32 GiB RAM"
+    value = "t3.2xlarge"
+  }
+}
+
+data "coder_parameter" "home_disk_size" {
+  name         = "home_disk_size"
+  display_name = "Home disk size"
+  description  = "Persistent EBS volume size for /home/coder, in GiB."
+  type         = "number"
+  form_type    = "slider"
+  default      = 50
+  mutable      = false
+  order        = 2
+
+  validation {
+    min = 20
+    max = 500
   }
 }
 
@@ -24,7 +99,7 @@ data "coder_parameter" "repository_url" {
   type         = "string"
   default      = ""
   mutable      = false
-  order        = 1
+  order        = 10
 }
 
 data "coder_parameter" "ai_agents" {
@@ -35,7 +110,7 @@ data "coder_parameter" "ai_agents" {
   form_type    = "multi-select"
   default      = jsonencode(["Claude Code", "Codex", "OpenCode", "Gemini CLI", "Grok CLI"])
   mutable      = false
-  order        = 2
+  order        = 11
 
   option {
     name  = "Claude Code"
@@ -76,7 +151,7 @@ data "coder_parameter" "ai_interfaces" {
   form_type    = "multi-select"
   default      = jsonencode(["T3 Code", "Mux"])
   mutable      = false
-  order        = 3
+  order        = 12
 
   option {
     name  = "T3 Code"
@@ -99,7 +174,7 @@ data "coder_parameter" "enable_ai_gateway" {
   form_type    = "switch"
   default      = false
   mutable      = false
-  order        = 4
+  order        = 13
 }
 
 data "coder_parameter" "preview_port" {
@@ -109,7 +184,7 @@ data "coder_parameter" "preview_port" {
   type         = "number"
   default      = 3000
   mutable      = true
-  order        = 5
+  order        = 14
 
   validation {
     min = 1
@@ -117,12 +192,10 @@ data "coder_parameter" "preview_port" {
   }
 }
 
-data "coder_provisioner" "me" {}
 data "coder_workspace" "me" {}
 data "coder_workspace_owner" "me" {}
 
 locals {
-  container_image = "codercom/example-universal:ubuntu"
   projects_dir    = "/home/coder/projects"
   selected_agents = try(jsondecode(data.coder_parameter.ai_agents.value), [])
   selected_interfaces = length(local.selected_agents) == 0 ? [] : try(
@@ -172,9 +245,44 @@ data "coder_external_auth" "gitlab" {
   id    = "gitlab"
 }
 
+data "aws_ami" "ubuntu" {
+  most_recent = true
+  owners      = ["099720109477"]
+
+  filter {
+    name   = "name"
+    values = ["ubuntu/images/hvm-ssd-gp3/ubuntu-noble-24.04-amd64-server-*"]
+  }
+
+  filter {
+    name   = "virtualization-type"
+    values = ["hvm"]
+  }
+}
+
+data "aws_vpc" "default" {
+  count   = var.subnet_id == "" ? 1 : 0
+  default = true
+}
+
+data "aws_subnets" "default" {
+  count = var.subnet_id == "" ? 1 : 0
+
+  filter {
+    name   = "vpc-id"
+    values = [data.aws_vpc.default[0].id]
+  }
+}
+
+data "aws_subnet" "workspace" {
+  id = var.subnet_id != "" ? var.subnet_id : sort(data.aws_subnets.default[0].ids)[0]
+}
+
 resource "coder_agent" "main" {
-  arch = data.coder_provisioner.me.arch
-  os   = "linux"
+  arch               = "amd64"
+  auth               = "aws-instance-identity"
+  os                 = "linux"
+  connection_timeout = 600
 
   startup_script = <<-EOT
     #!/bin/bash
@@ -600,104 +708,100 @@ resource "coder_app" "preview" {
   }
 }
 
-resource "docker_image" "workspace" {
-  name         = local.container_image
-  keep_locally = true
-}
+resource "aws_ebs_volume" "home" {
+  availability_zone = data.aws_subnet.workspace.availability_zone
+  encrypted         = true
+  size              = data.coder_parameter.home_disk_size.value
+  type              = "gp3"
 
-resource "docker_volume" "home" {
-  name = "coder-${data.coder_workspace.me.id}-home"
+  tags = {
+    Name                               = "coder-${data.coder_workspace.me.id}-home"
+    "coder.owner"                      = data.coder_workspace_owner.me.name
+    "coder.owner_id"                   = data.coder_workspace_owner.me.id
+    "coder.workspace_id"               = data.coder_workspace.me.id
+    "coder.workspace_name_at_creation" = data.coder_workspace.me.name
+  }
 
   lifecycle {
     ignore_changes = all
   }
+}
 
-  labels {
-    label = "coder.owner"
-    value = data.coder_workspace_owner.me.name
+resource "aws_instance" "workspace" {
+  count                       = data.coder_workspace.me.start_count
+  ami                         = data.aws_ami.ubuntu.id
+  instance_type               = data.coder_parameter.instance_type.value
+  subnet_id                   = data.aws_subnet.workspace.id
+  associate_public_ip_address = var.assign_public_ip
+  iam_instance_profile        = var.iam_instance_profile != "" ? var.iam_instance_profile : null
+  user_data_replace_on_change = true
+
+  user_data = templatefile("${path.module}/cloud-init/startup.sh.tftpl", {
+    INIT_SCRIPT_B64 = base64encode(coder_agent.main.init_script)
+    HOME_VOLUME_ID  = aws_ebs_volume.home.id
+  })
+
+  root_block_device {
+    encrypted   = true
+    volume_size = 20
+    volume_type = "gp3"
   }
 
-  labels {
-    label = "coder.owner_id"
-    value = data.coder_workspace_owner.me.id
+  tags = {
+    Name                               = "coder-${data.coder_workspace_owner.me.name}-${data.coder_workspace.me.name}"
+    "coder.owner"                      = data.coder_workspace_owner.me.name
+    "coder.owner_id"                   = data.coder_workspace_owner.me.id
+    "coder.workspace_id"               = data.coder_workspace.me.id
+    "coder.workspace_name_at_creation" = data.coder_workspace.me.name
   }
 
-  labels {
-    label = "coder.workspace_id"
-    value = data.coder_workspace.me.id
-  }
-
-  labels {
-    label = "coder.workspace_name_at_creation"
-    value = data.coder_workspace.me.name
+  lifecycle {
+    ignore_changes = [ami]
   }
 }
 
-resource "docker_container" "workspace" {
-  count    = data.coder_workspace.me.start_count
-  image    = docker_image.workspace.image_id
-  name     = "coder-${data.coder_workspace_owner.me.name}-${lower(data.coder_workspace.me.name)}"
-  hostname = data.coder_workspace.me.name
-  user     = "coder"
-
-  entrypoint = [
-    "sh",
-    "-c",
-    replace(coder_agent.main.init_script, "/localhost|127\\.0\\.0\\.1/", "host.docker.internal"),
-  ]
-
-  env = [
-    "CODER_AGENT_TOKEN=${coder_agent.main.token}",
-  ]
-
-  host {
-    host = "host.docker.internal"
-    ip   = "host-gateway"
-  }
-
-  volumes {
-    container_path = "/home/coder"
-    volume_name    = docker_volume.home.name
-    read_only      = false
-  }
-
-  labels {
-    label = "coder.owner"
-    value = data.coder_workspace_owner.me.name
-  }
-
-  labels {
-    label = "coder.owner_id"
-    value = data.coder_workspace_owner.me.id
-  }
-
-  labels {
-    label = "coder.workspace_id"
-    value = data.coder_workspace.me.id
-  }
-
-  labels {
-    label = "coder.workspace_name"
-    value = data.coder_workspace.me.name
-  }
-}
-
-resource "coder_metadata" "container" {
+resource "aws_volume_attachment" "home" {
   count       = data.coder_workspace.me.start_count
-  resource_id = docker_container.workspace[count.index].id
+  device_name = "/dev/sdh"
+  instance_id = aws_instance.workspace[count.index].id
+  volume_id   = aws_ebs_volume.home.id
+}
+
+resource "coder_metadata" "workspace" {
+  count       = data.coder_workspace.me.start_count
+  resource_id = aws_instance.workspace[count.index].id
+
+  item {
+    key   = "region"
+    value = module.aws_region.value
+  }
+
+  item {
+    key   = "availability zone"
+    value = data.aws_subnet.workspace.availability_zone
+  }
+
+  item {
+    key   = "instance type"
+    value = data.coder_parameter.instance_type.value
+  }
 
   item {
     key   = "image"
-    value = local.container_image
+    value = data.aws_ami.ubuntu.name
   }
+}
+
+resource "coder_metadata" "home" {
+  resource_id = aws_ebs_volume.home.id
 
   item {
-    key   = "home"
+    key   = "mount point"
     value = "/home/coder"
   }
 
   item {
-    key   = "projects"
-    value = local.projects_dir
+    key   = "size"
+    value = "${data.coder_parameter.home_disk_size.value} GiB"
   }
 }

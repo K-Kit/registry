@@ -1,0 +1,96 @@
+#!/usr/bin/env bash
+
+set -euo pipefail
+
+ARG_GEMINI_VERSION='${ARG_GEMINI_VERSION}'
+ARG_NODE_VERSION='${ARG_NODE_VERSION}'
+MODULE_ROOT="$HOME/.coder-modules/coder-labs/gemini-cli"
+NODE_HOME="$MODULE_ROOT/node"
+RUNTIME_DIR="$MODULE_ROOT/runtime"
+PACKAGE_DIR="$RUNTIME_DIR/node_modules/@google/gemini-cli"
+GEMINI_BIN="$RUNTIME_DIR/node_modules/.bin/gemini"
+PACKAGE_SPEC="@google/gemini-cli@$ARG_GEMINI_VERSION"
+
+require_command() {
+  if ! command -v "$1" > /dev/null 2>&1; then
+    printf 'Error: %s is required to install Gemini CLI.\n' "$1" >&2
+    exit 1
+  fi
+}
+
+install_node() {
+  local node_arch
+  local archive
+  local download_url
+
+  if [ -x "$NODE_HOME/bin/node" ] && [ "$("$NODE_HOME/bin/node" --version)" = "v$ARG_NODE_VERSION" ]; then
+    return
+  fi
+
+  if [ "$(uname -s)" != "Linux" ]; then
+    printf 'Error: Gemini CLI supports Linux workspaces only.\n' >&2
+    exit 1
+  fi
+
+  case "$(uname -m)" in
+    x86_64 | amd64)
+      node_arch="x64"
+      ;;
+    aarch64 | arm64)
+      node_arch="arm64"
+      ;;
+    *)
+      printf 'Error: unsupported CPU architecture: %s.\n' "$(uname -m)" >&2
+      exit 1
+      ;;
+  esac
+
+  archive="$MODULE_ROOT/node-v$ARG_NODE_VERSION-linux-$node_arch.tar.gz"
+  download_url="https://nodejs.org/dist/v$ARG_NODE_VERSION/node-v$ARG_NODE_VERSION-linux-$node_arch.tar.gz"
+
+  mkdir -p "$MODULE_ROOT" "$RUNTIME_DIR"
+  printf 'Downloading Node.js %s for linux-%s.\n' "$ARG_NODE_VERSION" "$node_arch"
+  curl --fail --location --silent --show-error "$download_url" --output "$archive"
+
+  rm -rf "$NODE_HOME"
+  mkdir -p "$NODE_HOME"
+  tar -xzf "$archive" --strip-components=1 -C "$NODE_HOME"
+}
+
+installed_version() {
+  if [ ! -f "$PACKAGE_DIR/package.json" ]; then
+    return 1
+  fi
+
+  PACKAGE_JSON="$PACKAGE_DIR/package.json" "$NODE_HOME/bin/node" -p "require(process.env.PACKAGE_JSON).version"
+}
+
+require_command curl
+require_command tar
+install_node
+
+export PATH="$NODE_HOME/bin:$PATH"
+
+current_version="$(installed_version || true)"
+if [ -x "$GEMINI_BIN" ] && { [ "$ARG_GEMINI_VERSION" = "latest" ] || [ "$current_version" = "$ARG_GEMINI_VERSION" ]; }; then
+  printf 'Gemini CLI %s is already installed in %s.\n' "$current_version" "$RUNTIME_DIR"
+else
+  printf 'Installing %s in %s.\n' "$PACKAGE_SPEC" "$RUNTIME_DIR"
+  npm install \
+    --prefix "$RUNTIME_DIR" \
+    --no-save \
+    --package-lock=false \
+    --omit=dev \
+    --no-audit \
+    --no-fund \
+    "$PACKAGE_SPEC"
+fi
+
+if [ ! -x "$GEMINI_BIN" ]; then
+  printf 'Error: Gemini CLI installation completed without creating %s.\n' "$GEMINI_BIN" >&2
+  exit 1
+fi
+
+mkdir -p "$HOME/.local/bin"
+ln -sfn "$GEMINI_BIN" "$HOME/.local/bin/gemini"
+printf 'Installed Gemini CLI %s successfully.\n' "$(installed_version)"

@@ -1,0 +1,47 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+exec > >(tee -a /var/log/coder-bootstrap.log) 2>&1
+
+if ! id coder >/dev/null 2>&1; then
+  useradd --create-home --shell /bin/bash coder
+fi
+
+printf 'coder ALL=(ALL) NOPASSWD:ALL\n' >/etc/sudoers.d/99-coder
+chmod 0440 /etc/sudoers.d/99-coder
+
+home_device=/dev/disk/by-id/google-coder-home
+for _ in $(seq 1 120); do
+  if [ -b "$home_device" ]; then
+    break
+  fi
+  sleep 2
+done
+
+if [ ! -b "$home_device" ]; then
+  printf 'Persistent home disk was not attached within 240 seconds. Bootstrap log: /var/log/coder-bootstrap.log\n' >&2
+  exit 1
+fi
+
+if ! blkid "$home_device" >/dev/null 2>&1; then
+  mkfs.ext4 -F -L coder-home "$home_device"
+fi
+
+mkdir -p /home/coder
+mount "$home_device" /home/coder
+chown coder:coder /home/coder
+
+if [ ! -f /home/coder/.init_done ]; then
+  cp -rT /etc/skel /home/coder
+  chown -R coder:coder /home/coder
+  touch /home/coder/.init_done
+  chown coder:coder /home/coder/.init_done
+fi
+
+mkdir -p /home/coder/projects
+chown coder:coder /home/coder/projects
+
+init_script=/usr/local/bin/coder-agent-init
+printf '%s' '${INIT_SCRIPT_B64}' | base64 --decode >"$init_script"
+chmod 0755 "$init_script"
+exec sudo -u coder -H bash "$init_script"

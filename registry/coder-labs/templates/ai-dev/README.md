@@ -27,6 +27,9 @@ application.
 Preview reports unhealthy until a server responds on the configured port. A
 missing preview server does not fail workspace provisioning.
 
+New workspaces default to stopping automatically after two hours. Owners can
+adjust the schedule when the deployment allows user-defined autostop settings.
+
 ## Repository setup
 
 The repository URL is optional. When supplied, the template clones it into
@@ -44,26 +47,32 @@ $HOME/.coder-modules/coder/git-clone/<repository-name>/logs/clone.log
 
 ## AI agents and interfaces
 
-Claude Code, Codex, and OpenCode are selected by default. Clear the AI-agent
-selection to create an IDE-only workspace; this also omits T3 Code and Mux.
-Interactive credentials and configuration written below `/home/coder` survive
-container recreation.
+Claude Code, Codex, OpenCode, Gemini CLI, and Grok CLI are selected by default.
+Clear the AI-agent selection to create an IDE-only workspace; this also omits
+T3 Code and Mux. Interactive credentials and configuration written below
+`/home/coder` survive container recreation. Gemini CLI supports interactive
+Google sign-in, while Grok CLI supports `grok login --device-auth` for remote
+workspaces.
 
 T3 Code and Mux are selected by default when at least one AI agent is enabled:
 
 - T3 Code provides browser-based sessions for supported coding agents. Opening
-  the app creates a fresh 30-day pairing token and embeds it in the `/pair`
-  link; pairing credentials are never stored in Terraform state.
+  the app uses a persistent per-workspace pairing secret embedded in the
+  `/pair` link. The same secret is available inside the workspace as
+  `T3CODE_PAIRING_SECRET`, seeds T3 Code during startup, and survives workspace
+  restarts with the rest of the workspace state.
 - Mux provides parallel agent sessions with isolated project workflows.
 
-The Claude Code, Codex, and OpenCode terminal launchers wait up to 120 seconds
-for installation. If installation is not complete, each launcher exits with its
-exact persisted log path:
+All AI-agent terminal launchers wait up to 120 seconds for installation. If
+installation is not complete, each launcher exits with its exact persisted log
+path:
 
 ```text
 $HOME/.coder-modules/coder/claude-code/logs/install.log
 $HOME/.coder-modules/coder-labs/codex/logs/install.log
 $HOME/.coder-modules/coder-labs/opencode/logs/install.log
+$HOME/.coder-modules/coder-labs/gemini-cli/logs/install.log
+$HOME/.coder-modules/coder-labs/grok-cli/logs/install.log
 ```
 
 Additional troubleshooting logs are stored at:
@@ -97,17 +106,24 @@ From this directory:
 terraform init -upgrade
 terraform validate
 coder templates push ai-dev
+coder templates edit ai-dev --default-ttl 2h
 ```
+
+From the repository root, `scripts/push_ai_dev_templates.sh` publishes the
+Docker, AWS, and GCP variants and applies the two-hour default to each successful
+push. It continues to the remaining variants if one cloud provisioner is
+missing credentials, then exits nonzero with the failed template names.
 
 Create a workspace with the default selections and verify:
 
 1. Clone `https://github.com/coder/registry`.
 2. Open code-server, Cursor, Windsurf, one selected JetBrains IDE, Claude Code,
-   Codex, OpenCode, T3 Code, Mux, and Preview.
+   Codex, OpenCode, Gemini CLI, Grok CLI, T3 Code, Mux, and Preview.
 3. Add a repository file and interactive agent configuration under
    `/home/coder`, restart the workspace, and confirm both persist.
 4. Create another workspace with an empty AI-agent selection and confirm that
-   Claude Code, Codex, OpenCode, T3 Code, and Mux are absent.
+   Claude Code, Codex, OpenCode, Gemini CLI, Grok CLI, T3 Code, and Mux are
+   absent.
 
 Preview is expected to be unhealthy when no process is listening on its
 configured port.

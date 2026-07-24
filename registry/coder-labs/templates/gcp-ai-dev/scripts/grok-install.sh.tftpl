@@ -1,0 +1,35 @@
+#!/usr/bin/env bash
+
+set -euo pipefail
+
+ARG_GROK_VERSION='${ARG_GROK_VERSION}'
+MODULE_ROOT="$HOME/.coder-modules/coder-labs/grok-cli"
+GROK_BIN="$MODULE_ROOT/bin/grok"
+
+if ! command -v curl > /dev/null 2>&1; then
+  printf 'Error: curl is required to install Grok CLI.\n' >&2
+  exit 1
+fi
+
+mkdir -p "$MODULE_ROOT/bin"
+if [ -x "$GROK_BIN" ] && [ "$ARG_GROK_VERSION" = "latest" ]; then
+  printf 'Grok CLI is already installed at %s.\n' "$GROK_BIN"
+else
+  printf 'Installing Grok CLI %s with the official xAI installer.\n' "$ARG_GROK_VERSION"
+  if [ "$ARG_GROK_VERSION" = "latest" ]; then
+    curl --fail --silent --show-error --location https://x.ai/cli/install.sh |
+      GROK_BIN_DIR="$MODULE_ROOT/bin" bash
+  else
+    curl --fail --silent --show-error --location https://x.ai/cli/install.sh |
+      GROK_BIN_DIR="$MODULE_ROOT/bin" bash -s "$ARG_GROK_VERSION"
+  fi
+fi
+
+if [ ! -x "$GROK_BIN" ]; then
+  printf 'Error: Grok CLI installation completed without creating %s.\n' "$GROK_BIN" >&2
+  exit 1
+fi
+
+mkdir -p "$HOME/.local/bin"
+ln -sfn "$GROK_BIN" "$HOME/.local/bin/grok"
+printf 'Grok CLI installation completed at %s.\n' "$GROK_BIN"
