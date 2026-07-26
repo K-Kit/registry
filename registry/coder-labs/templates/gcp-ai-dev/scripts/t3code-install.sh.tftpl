@@ -23,13 +23,8 @@ install_node() {
   local archive
   local download_url
 
-  if [ -x "$NODE_HOME/bin/node" ] && [ "$($NODE_HOME/bin/node --version)" = "v$ARG_NODE_VERSION" ]; then
+  if [ -x "$NODE_HOME/bin/node" ] && [ "$("$NODE_HOME/bin/node" --version)" = "v$ARG_NODE_VERSION" ]; then
     return
-  fi
-
-  if [ "$(uname -s)" != "Linux" ]; then
-    printf 'Error: T3 Code supports Linux workspaces only.\n' >&2
-    exit 1
   fi
 
   case "$(uname -m)" in
@@ -57,6 +52,21 @@ install_node() {
   tar -xzf "$archive" --strip-components=1 -C "$NODE_HOME"
 }
 
+install_build_tools() {
+  if command -v python3 > /dev/null 2>&1 && command -v make > /dev/null 2>&1 && command -v c++ > /dev/null 2>&1; then
+    return
+  fi
+
+  if ! command -v apt-get > /dev/null 2>&1 || ! command -v sudo > /dev/null 2>&1; then
+    printf 'Error: Python 3, make, and a C++ compiler are required to build T3 Code native dependencies.\n' >&2
+    exit 1
+  fi
+
+  printf 'Installing native build dependencies with apt.\n'
+  sudo apt-get update
+  sudo apt-get install -y build-essential python3
+}
+
 installed_version() {
   if [ ! -f "$PACKAGE_DIR/package.json" ]; then
     return 1
@@ -67,12 +77,12 @@ installed_version() {
 
 require_command curl
 require_command tar
-require_command python3
-require_command make
-require_command c++
 install_node
+install_build_tools
 
 export PATH="$NODE_HOME/bin:$PATH"
+
+printf '%s\n' '{"name":"coder-t3code-runtime","private":true,"allowScripts":{"node-pty":true,"msgpackr-extract":true}}' > "$RUNTIME_DIR/package.json"
 
 current_version="$(installed_version || true)"
 if [ -x "$T3CODE_BIN" ] && { [ "$ARG_T3CODE_VERSION" = "latest" ] || [ "$current_version" = "$ARG_T3CODE_VERSION" ]; }; then

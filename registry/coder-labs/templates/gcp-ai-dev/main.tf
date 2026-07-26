@@ -118,7 +118,7 @@ data "coder_parameter" "repository_url" {
 data "coder_parameter" "ai_agents" {
   name         = "ai_agents"
   display_name = "AI agents"
-  description  = "AI command-line agents to install. Clear every option for an IDE-only workspace."
+  description  = "AI agents to install. OpenCode includes the OpenChamber web interface. Clear every option for an IDE-only workspace."
   type         = "list(string)"
   form_type    = "multi-select"
   default      = jsonencode(["Claude Code", "Codex", "OpenCode", "Gemini CLI", "Grok CLI"])
@@ -138,7 +138,7 @@ data "coder_parameter" "ai_agents" {
   }
 
   option {
-    name  = "OpenCode"
+    name  = "OpenCode + OpenChamber"
     value = "OpenCode"
     icon  = "/icon/opencode.svg"
   }
@@ -224,12 +224,17 @@ locals {
   })
   t3code_start_script = templatefile("${path.module}/scripts/t3code-start.sh.tftpl", {
     ARG_AUTO_BOOTSTRAP_PROJECT = "true"
-    ARG_PAIRING_SECRET_B64     = try(base64encode(random_password.t3code_pairing_secret[0].result), "")
     ARG_PORT                   = "3773"
     ARG_WORKDIR_B64            = base64encode(local.workdir)
   })
   opencode_install_script = templatefile("${path.module}/scripts/opencode-install.sh.tftpl", {
-    ARG_OPENCODE_VERSION = "latest"
+    ARG_NODE_VERSION        = "24.18.0"
+    ARG_OPENCODE_VERSION    = "latest"
+    ARG_OPENCHAMBER_VERSION = "latest"
+  })
+  openchamber_start_script = templatefile("${path.module}/scripts/openchamber-start.sh.tftpl", {
+    ARG_PORT        = "3001"
+    ARG_WORKDIR_B64 = base64encode(local.workdir)
   })
   gemini_install_script = templatefile("${path.module}/scripts/gemini-install.sh.tftpl", {
     ARG_GEMINI_VERSION = "latest"
@@ -420,9 +425,10 @@ module "opencode" {
 
   agent_id            = coder_agent.main.id
   module_directory    = "$HOME/.coder-modules/coder-labs/opencode"
-  display_name_prefix = "OpenCode"
+  display_name_prefix = "OpenCode + OpenChamber"
   icon                = "/icon/opencode.svg"
   install_script      = local.opencode_install_script
+  start_script        = local.openchamber_start_script
 }
 
 module "gemini" {
@@ -510,30 +516,21 @@ resource "coder_app" "codex" {
 resource "coder_app" "opencode" {
   count        = data.coder_workspace.me.start_count > 0 && contains(local.selected_agents, "OpenCode") ? 1 : 0
   agent_id     = coder_agent.main.id
-  slug         = "opencode-cli"
-  display_name = "OpenCode CLI"
+  slug         = "openchamber"
+  display_name = "OpenChamber"
+  url          = "http://localhost:3001"
   icon         = "/icon/opencode.svg"
+  subdomain    = true
+  share        = "owner"
   group        = "AI Agents"
   order        = 14
-  open_in      = "slim-window"
-  command      = <<-EOT
-    #!/bin/bash
-    set -e
+  open_in      = "tab"
 
-    export PATH="$HOME/.opencode/bin:$PATH"
-    log_path="$HOME/.coder-modules/coder-labs/opencode/logs/install.log"
-    deadline=$((SECONDS + 120))
-    until command -v opencode >/dev/null 2>&1; do
-      if [ "$SECONDS" -ge "$deadline" ]; then
-        printf 'OpenCode was not installed within 120 seconds. Installation log: %s\n' "$log_path" >&2
-        exit 1
-      fi
-      sleep 2
-    done
-
-    cd "${local.workdir}"
-    exec opencode
-  EOT
+  healthcheck {
+    url       = "http://localhost:3001/"
+    interval  = 5
+    threshold = 24
+  }
 }
 
 resource "coder_app" "gemini" {
@@ -594,19 +591,6 @@ resource "coder_app" "grok" {
   EOT
 }
 
-resource "random_password" "t3code_pairing_secret" {
-  count   = contains(local.selected_interfaces, "T3 Code") ? 1 : 0
-  length  = 32
-  special = false
-}
-
-resource "coder_env" "t3code_pairing_secret" {
-  count    = contains(local.selected_interfaces, "T3 Code") ? 1 : 0
-  agent_id = coder_agent.main.id
-  name     = "T3CODE_PAIRING_SECRET"
-  value    = random_password.t3code_pairing_secret[count.index].result
-}
-
 module "t3code" {
   count  = data.coder_workspace.me.start_count > 0 && contains(local.selected_interfaces, "T3 Code") ? 1 : 0
   source = "registry.coder.com/coder/coder-utils/coder"
@@ -626,7 +610,7 @@ resource "coder_app" "t3code" {
   agent_id     = coder_agent.main.id
   slug         = "t3code"
   display_name = "T3 Code"
-  url          = "http://localhost:3773/pair#token=${random_password.t3code_pairing_secret[0].result}"
+  url          = "http://localhost:3773"
   icon         = "/icon/t3code.svg"
   subdomain    = true
   share        = "owner"
@@ -755,8 +739,7 @@ resource "google_compute_instance" "workspace" {
 
   metadata = {
     startup-script = templatefile("${path.module}/cloud-init/startup.sh.tftpl", {
-      ARG_INSTALL_T3CODE = tostring(contains(local.selected_interfaces, "T3 Code"))
-      INIT_SCRIPT_B64    = base64encode(coder_agent.main.init_script)
+      INIT_SCRIPT_B64 = base64encode(coder_agent.main.init_script)
     })
   }
 

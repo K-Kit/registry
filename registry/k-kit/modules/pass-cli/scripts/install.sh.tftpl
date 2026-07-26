@@ -1,0 +1,71 @@
+#!/usr/bin/env bash
+
+set -euo pipefail
+
+ARG_INSTALL_CHANNEL='${ARG_INSTALL_CHANNEL}'
+ARG_INSTALL_DIR=$(printf '%s' '${ARG_INSTALL_DIR_B64}' | base64 -d)
+ARG_INSTALL_DIR="$${ARG_INSTALL_DIR/#\~/$HOME}"
+ARG_INSTALL_DIR="$${ARG_INSTALL_DIR//\$HOME/$HOME}"
+
+export PATH="$${ARG_INSTALL_DIR}:$PATH"
+export PROTON_PASS_CLI_INSTALL_CHANNEL="$${ARG_INSTALL_CHANNEL}"
+export PROTON_PASS_CLI_INSTALL_DIR="$${ARG_INSTALL_DIR}"
+
+add_path_to_shell_profiles() {
+  local path_dir="$1"
+
+  for profile in "$HOME/.profile" "$HOME/.bash_profile" "$HOME/.bashrc" "$HOME/.zprofile" "$HOME/.zshrc"; do
+    if [ -f "$${profile}" ] && ! grep -Fq "$${path_dir}" "$${profile}" 2> /dev/null; then
+      printf '\nexport PATH="%s:$PATH"\n' "$${path_dir}" >> "$${profile}"
+    fi
+  done
+
+  local fish_config="$HOME/.config/fish/config.fish"
+  if [ -f "$${fish_config}" ] && ! grep -Fq "$${path_dir}" "$${fish_config}" 2> /dev/null; then
+    printf '\nfish_add_path "%s"\n' "$${path_dir}" >> "$${fish_config}"
+  fi
+}
+
+if ! command -v curl > /dev/null 2>&1; then
+  printf "curl is required to install Proton Pass CLI.\n" >&2
+  exit 1
+fi
+
+if ! command -v jq > /dev/null 2>&1; then
+  printf "jq is required to install Proton Pass CLI.\n" >&2
+  exit 1
+fi
+
+mkdir -p "$${ARG_INSTALL_DIR}"
+
+printf "Installing Proton Pass CLI from the %s channel...\n" "$${ARG_INSTALL_CHANNEL}"
+curl -fsSL https://proton.me/download/pass-cli/install.sh | bash
+
+PASS_CLI_BIN="$${ARG_INSTALL_DIR}/pass-cli"
+if [ ! -x "$${PASS_CLI_BIN}" ]; then
+  PASS_CLI_BIN=$(command -v pass-cli || true)
+fi
+
+if [ -z "$${PASS_CLI_BIN}" ] || [ ! -x "$${PASS_CLI_BIN}" ]; then
+  printf "Proton Pass CLI installation did not produce an executable binary.\n" >&2
+  exit 1
+fi
+
+if [ -n "$${CODER_SCRIPT_BIN_DIR:-}" ] && [ ! -e "$${CODER_SCRIPT_BIN_DIR}/pass-cli" ]; then
+  mkdir -p "$${CODER_SCRIPT_BIN_DIR}"
+  ln -s "$${PASS_CLI_BIN}" "$${CODER_SCRIPT_BIN_DIR}/pass-cli"
+fi
+
+add_path_to_shell_profiles "$(dirname "$${PASS_CLI_BIN}")"
+printf "Proton Pass CLI version: %s\n" "$("$${PASS_CLI_BIN}" --version)"
+
+if [ -n "$${PROTON_PASS_PERSONAL_ACCESS_TOKEN:-}" ]; then
+  if "$${PASS_CLI_BIN}" info > /dev/null 2>&1; then
+    printf "Proton Pass CLI is already authenticated.\n"
+  else
+    printf "Authenticating Proton Pass CLI with the configured personal access token...\n"
+    "$${PASS_CLI_BIN}" login
+  fi
+else
+  printf "Run 'pass-cli login' to authenticate with Proton Pass.\n"
+fi

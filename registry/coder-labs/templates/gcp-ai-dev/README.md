@@ -3,7 +3,7 @@ display_name: AI Development on GCP
 description: Interactive Compute Engine development workspace with persistent home storage, IDEs, AI agents, and orchestration interfaces
 icon: ../../../../.icons/gcp.svg
 verified: false
-tags: [gcp, compute-engine, ai, ide, claude, codex, opencode]
+tags: [gcp, compute-engine, ai, ide, claude, codex, opencode, openchamber]
 ---
 
 # AI Development on GCP
@@ -32,11 +32,11 @@ startup failures, with their logs persisted below `$HOME/.coder-modules`.
 
 Claude Code, Codex, OpenCode, Gemini CLI, and Grok CLI are enabled by default.
 Clearing the AI-agent selection creates an IDE-only workspace and omits T3 Code
-and Mux. T3 Code opens through a persistent per-workspace pairing link. The same
-secret is available inside the workspace as `T3CODE_PAIRING_SECRET` and seeds T3
-Code during startup. Mux provides parallel isolated agent workflows.
-Interactive credentials and configuration persist on the home disk. Grok CLI
-supports `grok login --device-auth` for remote authentication.
+and Mux. OpenCode opens in the browser through an owner-only OpenChamber web app.
+T3 Code uses a corrected npm 12-compatible lifecycle and opens as an owner-only
+web app. Mux provides parallel isolated agent workflows. Interactive credentials
+and configuration persist on the home disk. Grok CLI supports
+`grok login --device-auth` for remote authentication.
 
 Optional Coder AI Gateway integration for Claude Code and Codex requires Coder
 Premium and Coder 2.30 or newer.
@@ -83,7 +83,8 @@ coder templates edit gcp-ai-dev --default-ttl 2h
 ```
 
 Create a default workspace, clone `https://github.com/coder/registry`, and verify
-the IDEs, five AI agents, T3 Code, Mux, and Preview. Add files under
+the IDEs, OpenCode in OpenChamber, the other four AI agents, T3 Code, Mux, and
+Preview. Add files under
 `/home/coder`, stop and restart the workspace, and confirm they persist. Finally,
 create an IDE-only workspace and confirm that all optional AI resources are
 absent.

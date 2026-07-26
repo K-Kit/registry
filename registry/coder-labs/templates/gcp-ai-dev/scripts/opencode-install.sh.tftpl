@@ -7,20 +7,81 @@ fi
 
 set -euo pipefail
 
+ARG_NODE_VERSION='${ARG_NODE_VERSION}'
 ARG_OPENCODE_VERSION='${ARG_OPENCODE_VERSION}'
+ARG_OPENCHAMBER_VERSION='${ARG_OPENCHAMBER_VERSION}'
+MODULE_ROOT="$HOME/.coder-modules/coder-labs/opencode"
+NODE_HOME="$MODULE_ROOT/node"
+RUNTIME_DIR="$MODULE_ROOT/runtime"
 OPENCODE_BIN="$HOME/.opencode/bin/opencode"
+OPENCHAMBER_PACKAGE_DIR="$RUNTIME_DIR/node_modules/@openchamber/web"
+OPENCHAMBER_BIN="$RUNTIME_DIR/node_modules/.bin/openchamber"
+
+require_command() {
+  if ! command -v "$1" > /dev/null 2>&1; then
+    printf 'Error: %s is required to install OpenCode and OpenChamber.\n' "$1" >&2
+    exit 1
+  fi
+}
+
+install_node() {
+  local node_arch
+  local archive
+  local download_url
+
+  if [ -x "$NODE_HOME/bin/node" ] && [ "$("$NODE_HOME/bin/node" --version)" = "v$ARG_NODE_VERSION" ]; then
+    return
+  fi
+
+  case "$(uname -m)" in
+    x86_64 | amd64)
+      node_arch="x64"
+      ;;
+    aarch64 | arm64)
+      node_arch="arm64"
+      ;;
+    *)
+      printf 'Error: unsupported CPU architecture: %s.\n' "$(uname -m)" >&2
+      exit 1
+      ;;
+  esac
+
+  archive="$MODULE_ROOT/node-v$ARG_NODE_VERSION-linux-$node_arch.tar.gz"
+  download_url="https://nodejs.org/dist/v$ARG_NODE_VERSION/node-v$ARG_NODE_VERSION-linux-$node_arch.tar.gz"
+
+  mkdir -p "$MODULE_ROOT" "$RUNTIME_DIR"
+  printf 'Downloading Node.js %s for linux-%s.\n' "$ARG_NODE_VERSION" "$node_arch"
+  curl --fail --location --silent --show-error "$download_url" --output "$archive"
+
+  rm -rf "$NODE_HOME"
+  mkdir -p "$NODE_HOME"
+  tar -xzf "$archive" --strip-components=1 -C "$NODE_HOME"
+}
+
+require_command curl
+require_command tar
+install_node
+
+export PATH="$NODE_HOME/bin:$HOME/.opencode/bin:$PATH"
+
+installed_openchamber_version() {
+  if [ ! -f "$OPENCHAMBER_PACKAGE_DIR/package.json" ]; then
+    return 1
+  fi
+
+  PACKAGE_JSON="$OPENCHAMBER_PACKAGE_DIR/package.json" "$NODE_HOME/bin/node" -p "require(process.env.PACKAGE_JSON).version"
+}
 
 if [ -x "$OPENCODE_BIN" ]; then
   printf 'OpenCode is already installed at %s.\n' "$OPENCODE_BIN"
-  exit 0
-fi
-
-printf 'Installing OpenCode %s with the official installer.\n' "$ARG_OPENCODE_VERSION"
-if [ "$ARG_OPENCODE_VERSION" = "latest" ]; then
-  curl --fail --silent --show-error --location https://opencode.ai/install | bash
 else
-  curl --fail --silent --show-error --location https://opencode.ai/install |
-    VERSION="$ARG_OPENCODE_VERSION" bash
+  printf 'Installing OpenCode %s with the official installer.\n' "$ARG_OPENCODE_VERSION"
+  if [ "$ARG_OPENCODE_VERSION" = "latest" ]; then
+    curl --fail --silent --show-error --location https://opencode.ai/install | bash
+  else
+    curl --fail --silent --show-error --location https://opencode.ai/install |
+      VERSION="$ARG_OPENCODE_VERSION" bash
+  fi
 fi
 
 if [ ! -x "$OPENCODE_BIN" ]; then
@@ -28,4 +89,28 @@ if [ ! -x "$OPENCODE_BIN" ]; then
   exit 1
 fi
 
+current_openchamber_version="$(installed_openchamber_version || true)"
+if [ -x "$OPENCHAMBER_BIN" ] && { [ "$ARG_OPENCHAMBER_VERSION" = "latest" ] || [ "$current_openchamber_version" = "$ARG_OPENCHAMBER_VERSION" ]; }; then
+  printf 'OpenChamber %s is already installed in %s.\n' "$current_openchamber_version" "$RUNTIME_DIR"
+else
+  package_spec="@openchamber/web@$ARG_OPENCHAMBER_VERSION"
+  printf 'Installing %s in %s.\n' "$package_spec" "$RUNTIME_DIR"
+  npm install \
+    --prefix "$RUNTIME_DIR" \
+    --no-save \
+    --package-lock=false \
+    --omit=dev \
+    --no-audit \
+    --no-fund \
+    "$package_spec"
+fi
+
+if [ ! -x "$OPENCHAMBER_BIN" ]; then
+  printf 'Error: OpenChamber installation completed without producing %s.\n' "$OPENCHAMBER_BIN" >&2
+  exit 1
+fi
+
+mkdir -p "$HOME/.local/bin"
+ln -sfn "$OPENCHAMBER_BIN" "$HOME/.local/bin/openchamber"
 printf 'OpenCode installation completed at %s.\n' "$OPENCODE_BIN"
+printf 'OpenChamber installation completed at %s.\n' "$OPENCHAMBER_BIN"

@@ -1,0 +1,92 @@
+#!/usr/bin/env bash
+
+if [ -f "$HOME/.bashrc" ]; then
+  # shellcheck disable=SC1090
+  source "$HOME/.bashrc"
+fi
+
+set -euo pipefail
+
+ARG_PORT='${ARG_PORT}'
+ARG_WORKDIR_B64='${ARG_WORKDIR_B64}'
+MODULE_ROOT="$HOME/.coder-modules/coder-labs/opencode"
+NODE_HOME="$MODULE_ROOT/node"
+OPENCHAMBER_BIN="$MODULE_ROOT/runtime/node_modules/.bin/openchamber"
+OPENCODE_BIN="$HOME/.opencode/bin/opencode"
+RUN_DIR="$MODULE_ROOT/run"
+PID_FILE="$RUN_DIR/openchamber.pid"
+SERVICE_LOG="$MODULE_ROOT/logs/openchamber.log"
+INSTALL_LOG="$MODULE_ROOT/logs/install.log"
+HEALTH_URL="http://127.0.0.1:$ARG_PORT/"
+
+export PATH="$NODE_HOME/bin:$HOME/.opencode/bin:$HOME/.local/bin:$PATH"
+
+health_ready() {
+  curl --fail --silent --max-time 2 "$HEALTH_URL" > /dev/null
+}
+
+mkdir -p "$RUN_DIR" "$(dirname "$SERVICE_LOG")"
+
+install_deadline=$((SECONDS + 180))
+until [ -x "$OPENCHAMBER_BIN" ] && [ -x "$OPENCODE_BIN" ]; do
+  if [ "$SECONDS" -ge "$install_deadline" ]; then
+    printf 'Error: OpenCode and OpenChamber were not installed within 180 seconds. Installation log: %s\n' "$INSTALL_LOG" >&2
+    exit 1
+  fi
+  sleep 2
+done
+
+if health_ready; then
+  printf 'OpenChamber is already healthy at %s.\n' "$HEALTH_URL"
+  exit 0
+fi
+
+if [ -f "$PID_FILE" ]; then
+  existing_pid="$(cat "$PID_FILE")"
+  if [[ "$existing_pid" =~ ^[0-9]+$ ]] && kill -0 "$existing_pid" 2> /dev/null; then
+    printf 'Error: OpenChamber process %s is running but its health check is failing.\n' "$existing_pid" >&2
+    exit 1
+  fi
+  rm -f "$PID_FILE"
+fi
+
+WORKDIR="$(printf '%s' "$ARG_WORKDIR_B64" | base64 --decode)"
+WORKDIR="$${WORKDIR/#\~/$HOME}"
+WORKDIR="$${WORKDIR//\$HOME/$HOME}"
+
+if [ ! -d "$WORKDIR" ]; then
+  printf 'Error: configured OpenChamber working directory does not exist: %s.\n' "$WORKDIR" >&2
+  exit 1
+fi
+
+printf 'Starting OpenChamber at %s for %s.\n' "$HEALTH_URL" "$WORKDIR"
+cd "$WORKDIR"
+nohup "$OPENCHAMBER_BIN" serve \
+  --port "$ARG_PORT" \
+  --host 127.0.0.1 \
+  --foreground \
+  >> "$SERVICE_LOG" 2>&1 &
+openchamber_pid=$!
+printf '%s\n' "$openchamber_pid" > "$PID_FILE"
+
+for _ in $(seq 1 120); do
+  if health_ready; then
+    printf 'OpenChamber is ready at %s.\n' "$HEALTH_URL"
+    exit 0
+  fi
+
+  if ! kill -0 "$openchamber_pid" 2> /dev/null; then
+    wait "$openchamber_pid" || exit_code=$?
+    rm -f "$PID_FILE"
+    printf 'Error: OpenChamber exited before becoming healthy (exit code %s). See %s.\n' \
+      "$${exit_code:-unknown}" "$SERVICE_LOG" >&2
+    exit 1
+  fi
+
+  sleep 1
+done
+
+kill "$openchamber_pid" 2> /dev/null || true
+rm -f "$PID_FILE"
+printf 'Error: OpenChamber did not become healthy within 120 seconds. See %s.\n' "$SERVICE_LOG" >&2
+exit 1
