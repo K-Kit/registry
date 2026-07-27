@@ -53,6 +53,21 @@ run "defaults_are_secure" {
   }
 
   assert {
+    condition     = strcontains(local.install_script, "K_KIT_RELEASES_URL=\"https://github.com/K-Kit/t3code/releases\"") && strcontains(local.install_script, "PACKAGE_DIR=\"$RUNTIME_DIR/node_modules/@k-kit/t3code\"")
+    error_message = "latest must resolve to the public K-Kit package containing the OMP/Pi fix."
+  }
+
+  assert {
+    condition     = strcontains(local.install_script, "[ \"$current_version\" = \"$DESIRED_VERSION\" ]") && !strcontains(local.install_script, "[ \"$ARG_T3CODE_VERSION\" = \"latest\" ] ||")
+    error_message = "latest must skip installation only when the installed and resolved versions match."
+  }
+
+  assert {
+    condition     = strcontains(local.install_script, "--allow-remote=root")
+    error_message = "npm 12 must explicitly allow the selected root release tarball."
+  }
+
+  assert {
     condition     = local.module_directory == "$HOME/.coder-modules/coder/t3code"
     error_message = "The module must use the standard per-module data root."
   }

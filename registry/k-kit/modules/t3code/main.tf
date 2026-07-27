@@ -26,13 +26,13 @@ variable "port" {
 }
 
 variable "t3code_version" {
-  description = "T3 Code npm package version to install, or latest."
+  description = "T3 Code version to install. latest tracks K-Kit's fixed release; versions ending in -k-kit.N use K-Kit release assets, while other explicit versions use the official npm package."
   type        = string
   default     = "latest"
 
   validation {
     condition     = var.t3code_version == "latest" || can(regex("^[0-9]+\\.[0-9]+\\.[0-9]+(?:-[0-9A-Za-z.-]+)?$", var.t3code_version))
-    error_message = "t3code_version must be latest or a semantic version such as 0.0.28."
+    error_message = "t3code_version must be latest or a semantic version such as 0.0.28 or 0.0.28-k-kit.1."
   }
 }
 
@@ -160,4 +160,3 @@ output "url" {
   description = "Loopback URL used by the T3 Code Coder app."
   value       = coder_app.t3code.url
 }
-

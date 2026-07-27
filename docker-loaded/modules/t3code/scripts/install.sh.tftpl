@@ -7,9 +7,11 @@ ARG_T3CODE_VERSION='${ARG_T3CODE_VERSION}'
 MODULE_ROOT="$HOME/.coder-modules/coder/t3code"
 NODE_HOME="$MODULE_ROOT/node"
 RUNTIME_DIR="$MODULE_ROOT/runtime"
-PACKAGE_DIR="$RUNTIME_DIR/node_modules/t3"
 T3CODE_BIN="$RUNTIME_DIR/node_modules/.bin/t3"
-PACKAGE_SPEC="t3@$ARG_T3CODE_VERSION"
+K_KIT_RELEASES_URL="https://github.com/K-Kit/t3code/releases"
+DESIRED_VERSION=""
+PACKAGE_DIR=""
+PACKAGE_SPEC=""
 
 require_command() {
   if ! command -v "$1" > /dev/null 2>&1; then
@@ -72,6 +74,40 @@ install_build_tools() {
   sudo apt-get -o DPkg::Lock::Timeout=300 install -y build-essential python3
 }
 
+resolve_package() {
+  local latest_release_url
+  local latest_tag
+
+  case "$ARG_T3CODE_VERSION" in
+    latest)
+      if ! latest_release_url="$(curl --fail --location --head --silent --show-error --output /dev/null --write-out '%%{url_effective}' "$K_KIT_RELEASES_URL/latest")"; then
+        printf 'Error: unable to resolve the latest K-Kit T3 Code release. Check network access or set t3code_version explicitly.\n' >&2
+        exit 1
+      fi
+
+      latest_tag="$${latest_release_url##*/}"
+      if [[ ! "$latest_tag" =~ ^v[0-9]+\.[0-9]+\.[0-9]+-k-kit\.[0-9]+$ ]]; then
+        printf 'Error: the latest K-Kit T3 Code release URL returned an invalid tag: %s.\n' "$latest_release_url" >&2
+        exit 1
+      fi
+
+      DESIRED_VERSION="$${latest_tag#v}"
+      ;;
+    *-k-kit.*)
+      DESIRED_VERSION="$ARG_T3CODE_VERSION"
+      ;;
+    *)
+      DESIRED_VERSION="$ARG_T3CODE_VERSION"
+      PACKAGE_DIR="$RUNTIME_DIR/node_modules/t3"
+      PACKAGE_SPEC="t3@$DESIRED_VERSION"
+      return
+      ;;
+  esac
+
+  PACKAGE_DIR="$RUNTIME_DIR/node_modules/@k-kit/t3code"
+  PACKAGE_SPEC="$K_KIT_RELEASES_URL/download/v$DESIRED_VERSION/k-kit-t3code-$DESIRED_VERSION.tgz"
+}
+
 installed_version() {
   if [ ! -f "$PACKAGE_DIR/package.json" ]; then
     return 1
@@ -86,12 +122,13 @@ install_node
 install_build_tools
 
 export PATH="$NODE_HOME/bin:$PATH"
+resolve_package
 
 # npm 12 blocks dependency install scripts unless the project explicitly approves them.
 printf '%s\n' '{"name":"coder-t3code-runtime","private":true,"allowScripts":{"node-pty":true,"msgpackr-extract":true}}' > "$RUNTIME_DIR/package.json"
 
 current_version="$(installed_version || true)"
-if [ -x "$T3CODE_BIN" ] && { [ "$ARG_T3CODE_VERSION" = "latest" ] || [ "$current_version" = "$ARG_T3CODE_VERSION" ]; }; then
+if [ -x "$T3CODE_BIN" ] && [ "$current_version" = "$DESIRED_VERSION" ]; then
   printf 'T3 Code %s is already installed in %s.\n' "$current_version" "$RUNTIME_DIR"
   exit 0
 fi
@@ -104,6 +141,7 @@ npm install \
   --omit=dev \
   --no-audit \
   --no-fund \
+  --allow-remote=root \
   "$PACKAGE_SPEC"
 
 if [ ! -x "$T3CODE_BIN" ]; then
@@ -112,4 +150,10 @@ if [ ! -x "$T3CODE_BIN" ]; then
 fi
 
 NODE_PATH="$RUNTIME_DIR/node_modules" "$NODE_HOME/bin/node" -e 'require("node-pty")'
-printf 'Installed T3 Code %s successfully.\n' "$(installed_version)"
+current_version="$(installed_version || true)"
+if [ "$current_version" != "$DESIRED_VERSION" ]; then
+  printf 'Error: expected T3 Code %s after installation, found %s.\n' "$DESIRED_VERSION" "$${current_version:-unknown}" >&2
+  exit 1
+fi
+
+printf 'Installed T3 Code %s successfully.\n' "$current_version"

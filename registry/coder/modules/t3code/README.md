@@ -12,11 +12,13 @@ Run [T3 Code](https://github.com/pingdotgg/t3code), a web interface for coding a
 
 Install and authenticate at least one supported provider CLI before using T3 Code. T3 Code currently supports Codex, Claude Code, Cursor, and OpenCode.
 
+By default, `t3code_version = "latest"` resolves the newest public [K-Kit T3 Code release](https://github.com/K-Kit/t3code/releases). The current `0.0.28-k-kit.1` package is built from commit [`7c84ad2c`](https://github.com/K-Kit/t3code/commit/7c84ad2cb3da3e78ee578a14fce4bf2f97e138fb) and includes the OMP/Pi websocket serialization fix. Set an exact `-k-kit.N` version to pin a K-Kit release, or another exact semantic version to install the official `t3` npm package. Provisioning fails with a clear error when `latest` cannot be resolved instead of silently treating a stale installation as current.
+
 ```tf
 module "t3code" {
   count    = data.coder_workspace.me.start_count
   source   = "registry.coder.com/coder/t3code/coder"
-  version  = "1.1.1"
+  version  = "1.1.2"
   agent_id = coder_agent.main.id
 }
 ```
@@ -27,7 +29,7 @@ module "t3code" {
 module "t3code" {
   count    = data.coder_workspace.me.start_count
   source   = "registry.coder.com/coder/t3code/coder"
-  version  = "1.1.1"
+  version  = "1.1.2"
   agent_id = coder_agent.main.id
   workdir  = "/home/coder/project"
 }
