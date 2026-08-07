@@ -14,8 +14,11 @@ if sudo docker info >/dev/null 2>&1; then
   log "Docker daemon already running"
 else
   log "Starting Docker daemon (fuse-overlayfs, host networking)"
-  # Launch detached so this script can return; logs go to $DOCKER_LOG.
-  sudo bash -c "nohup dockerd >'${DOCKER_LOG}' 2>&1 &"
+  # Launch fully detached (new session via setsid + nohup) so the daemon
+  # survives this script returning and is not reaped with the start phase's
+  # process group. Logs go to $DOCKER_LOG.
+  sudo rm -f /var/run/docker.pid
+  sudo bash -c "setsid nohup dockerd >'${DOCKER_LOG}' 2>&1 < /dev/null &"
 
   log "Waiting for the Docker socket to become ready"
   for _ in $(seq 1 30); do
